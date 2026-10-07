@@ -101,6 +101,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.global(qos: .utility).async {
                 let texte = SystemPasteboard.texteOCR(octets)
                 try? self?.store.definirTexteRecherche(id, texte ?? "")
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    // L'OCR vient de finir. On reflète son texte dans l'entrée en cache et,
+                    // si le panneau est ouvert, on rafraîchit l'aperçu : le texte reconnu
+                    // apparaît tout seul à côté de l'image, sans rouvrir le panneau.
+                    self.entreesDuPanneau[id]?.searchText = texte ?? ""
+                    if self.recherchePanel.estVisible {
+                        self.rafraichirLApercuDeLaRecherche()
+                    }
+                }
             }
         }
         // `capture:` n'a volontairement pas de valeur par défaut. Sans lui, notre propre

@@ -14,7 +14,9 @@ struct ClipItem: Equatable {
     let deviceID: String
     let kind: ClipKind
     let title: String
-    let searchText: String
+    /// `var` car l'OCR d'une image, qui arrive en tâche de fond APRÈS la capture, met à
+    /// jour ce texte ; l'aperçu du panneau le reflète alors sans tout recharger.
+    var searchText: String
     let contentHash: String
     let byteSize: Int
     let sourceBundleID: String?
@@ -27,7 +29,8 @@ struct ClipItem: Equatable {
 
     /// Fabrique de confort pour les tests et pour la capture de texte simple.
     static func text(_ s: String, hash: String, device: String,
-                     source: String? = nil, at: Double = 0) -> ClipItem {
+                     source: String? = nil, at: Double = 0) -> ClipItem
+    {
         ClipItem(id: UUID().uuidString, createdAt: at, modifiedAt: at, deviceID: device,
                  kind: .text, title: String(s.prefix(200)), searchText: s,
                  contentHash: hash, byteSize: s.utf8.count, sourceBundleID: source,
