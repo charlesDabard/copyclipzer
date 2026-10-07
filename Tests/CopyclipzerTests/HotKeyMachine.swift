@@ -1,0 +1,1 @@
+../../Sources/HotKey/HotKeyMachine.swift

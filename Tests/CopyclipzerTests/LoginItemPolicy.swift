@@ -1,0 +1,1 @@
+../../Sources/Copyclipzer/LoginItemPolicy.swift

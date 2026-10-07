@@ -1,0 +1,103 @@
+/* Copyclipzer interfaces, English. */
+
+/* Search field: placeholder text. */
+"recherche.placeholder" = "Search history";
+
+/* Search list empty, no query yet. */
+"recherche.historique_vide" = "Empty history";
+
+/* Search list empty, no match for the query. */
+"recherche.aucun_resultat" = "No results";
+
+/* Action: pin an entry. */
+"action.epingler" = "Pin";
+
+/* Action: unpin an entry. */
+"action.deseingler" = "Unpin";
+
+/* Action: delete an entry. */
+"action.supprimer" = "Delete";
+
+/* Action: delete every entry. */
+"action.tout_supprimer" = "Delete all";
+
+/* Action: delete everything but pinned entries. */
+"action.tout_sauf_epingles" = "Delete all but pinned";
+
+/* Action: open the settings window. */
+"action.reglages" = "Settings…";
+
+/* Gesture overlay: nothing to show. */
+"overlay.aucune_entree" = "no entries";
+
+/* Gesture overlay: paste will be plain text. */
+"overlay.collage_texte_brut" = "paste as plain text";
+
+/* Dialog cancel button. */
+"commun.annuler" = "Cancel";
+
+/* Settings window title. */
+"reglages.titre" = "Copyclipzer Settings";
+
+/* Section title: history size. */
+"reglages.section.historique" = "History";
+
+/* Settings menu: a history-size value. %d is a number. */
+"reglages.historique.valeur" = "%d entries";
+
+/* Settings menu: retention submenu title. */
+"reglages.section.retention" = "Retention";
+
+/* Settings menu: retention disabled. */
+"reglages.retention.desactivee" = "Disabled";
+
+/* Settings menu: a retention value. %d is a number of days. */
+"reglages.retention.jours" = "%d days";
+
+/* Settings menu: open-shortcut submenu title. */
+"reglages.section.raccourci" = "Open shortcut";
+
+/* Settings: number of kept entries. The %d is replaced by a number. */
+"reglages.historique.garder" = "Keep the last %d entries";
+
+/* Settings: note about pinned entries. */
+"reglages.historique.note" = "Pinned entries are always kept, whatever this number.";
+
+/* Section title: applications excluded from capture. */
+"reglages.section.exclusions" = "Applications excluded from capture";
+
+/* Settings: no excluded application. */
+"reglages.exclusions.aucune" = "None. Copies from every application are recorded. Copies marked confidential (password managers) are ignored anyway.";
+
+/* Settings: add an application to the exclusion list. */
+"reglages.exclusions.ajouter" = "Add an application…";
+
+/* Section title: startup. */
+"reglages.section.demarrage" = "Startup";
+
+/* Settings: open the app at login. */
+"reglages.demarrage.ouvrir" = "Open Copyclipzer at login";
+
+/* Menu bar icon menu: open at startup. */
+"menu.ouvrir_demarrage" = "Open at startup";
+
+/* Menu bar icon menu: quit the app. */
+"menu.quitter" = "Quit Copyclipzer";
+
+/* Confirmation: full clear title. */
+"confirmation.vider_tout.titre" = "Clear the whole history?";
+
+/* Confirmation: full clear body. */
+"confirmation.vider_tout.info" = "Every entry will be deleted, pinned ones included. This cannot be undone.";
+
+/* Confirmation: clear-all-but-pinned title. */
+"confirmation.vider_sauf_epingles.titre" = "Clear everything but pinned?";
+
+/* Confirmation: clear-all-but-pinned body. */
+"confirmation.vider_sauf_epingles.info" = "Every unpinned entry will be deleted. Pinned ones are kept.";
+
+/* Badge: an update is available. %@ is the version number (e.g. v1.2.0). */
+"maj.disponible" = "Update %@";
+
+/* Tooltip of the update badge. */
+"maj.aide" = "Open the releases page on GitHub";

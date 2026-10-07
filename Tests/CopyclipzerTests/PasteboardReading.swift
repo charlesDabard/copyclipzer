@@ -1,0 +1,1 @@
+../../Sources/Capture/PasteboardReading.swift

@@ -1,0 +1,103 @@
+/* Interfaces Copyclipzer, langue par defaut : francais. */
+
+/* Champ de recherche : texte indicatif. */
+"recherche.placeholder" = "Rechercher dans l'historique";
+
+/* Liste de recherche vide, aucune requete en cours. */
+"recherche.historique_vide" = "Historique vide";
+
+/* Liste de recherche vide, une requete ne correspond a rien. */
+"recherche.aucun_resultat" = "Aucun résultat";
+
+/* Action : epingler une entree. */
+"action.epingler" = "Épingler";
+
+/* Action : retirer une entree des epingles. */
+"action.deseingler" = "Désépingler";
+
+/* Action : supprimer une entree. */
+"action.supprimer" = "Supprimer";
+
+/* Action : supprimer toutes les entrees. */
+"action.tout_supprimer" = "Tout supprimer";
+
+/* Action : supprimer tout sauf les entrees epinglees. */
+"action.tout_sauf_epingles" = "Tout sauf épinglés";
+
+/* Action : ouvrir la fenetre de reglages. */
+"action.reglages" = "Réglages…";
+
+/* Overlay du geste : aucune entree a afficher. */
+"overlay.aucune_entree" = "aucune entrée";
+
+/* Overlay du geste : le collage sera colle en texte brut. */
+"overlay.collage_texte_brut" = "collage en texte brut";
+
+/* Bouton d'annulation d'une boite de dialogue. */
+"commun.annuler" = "Annuler";
+
+/* Titre de la fenetre de reglages. */
+"reglages.titre" = "Réglages de Copyclipzer";
+
+/* Titre de section : taille de l'historique. */
+"reglages.section.historique" = "Historique";
+
+/* Reglages : nombre d'entrees conservees. Le %d est remplace par un nombre. */
+"reglages.historique.garder" = "Garder les %d dernières entrées";
+
+/* Menu reglages : une valeur de taille d'historique. %d est un nombre. */
+"reglages.historique.valeur" = "%d entrées";
+
+/* Menu reglages : titre du sous-menu de retention. */
+"reglages.section.retention" = "Rétention";
+
+/* Menu reglages : retention desactivee. */
+"reglages.retention.desactivee" = "Désactivée";
+
+/* Menu reglages : une valeur de retention. %d est un nombre de jours. */
+"reglages.retention.jours" = "%d jours";
+
+/* Menu reglages : titre du sous-menu du raccourci d'ouverture. */
+"reglages.section.raccourci" = "Raccourci d'ouverture";
+
+/* Reglages : note sur les entrees epinglees. */
+"reglages.historique.note" = "Les entrées épinglées sont toujours conservées, quel que soit ce nombre.";
+
+/* Titre de section : applications exclues de la capture. */
+"reglages.section.exclusions" = "Applications exclues de la capture";
+
+/* Reglages : aucune application exclue. */
+"reglages.exclusions.aucune" = "Aucune. Les copies de toutes les applications sont enregistrées. Les copies marquées confidentielles (gestionnaires de mots de passe) sont de toute façon ignorées.";
+
+/* Reglages : ajouter une application a la liste d'exclusion. */
+"reglages.exclusions.ajouter" = "Ajouter une application…";
+
+/* Titre de section : demarrage. */
+"reglages.section.demarrage" = "Démarrage";
+
+/* Reglages : ouvrir l'application a l'ouverture de session. */
+"reglages.demarrage.ouvrir" = "Ouvrir Copyclipzer à l'ouverture de session";
+
+/* Menu de l'icone de barre : ouvrir au demarrage. */
+"menu.ouvrir_demarrage" = "Ouvrir au démarrage";
+
+/* Menu de l'icone de barre : quitter l'application. */
+"menu.quitter" = "Quitter Copyclipzer";
+
+/* Confirmation : titre du vidage complet. */
+"confirmation.vider_tout.titre" = "Vider tout l'historique ?";
+
+/* Confirmation : texte du vidage complet. */
+"confirmation.vider_tout.info" = "Toutes les entrées seront supprimées, les épinglées comprises. C'est irréversible.";
+
+/* Confirmation : titre du vidage sauf epingles. */
+"confirmation.vider_sauf_epingles.titre" = "Vider sauf les épinglés ?";
+
+/* Confirmation : texte du vidage sauf epingles. */
+"confirmation.vider_sauf_epingles.info" = "Toutes les entrées non épinglées seront supprimées. Les épinglées sont conservées.";
+
+/* Pastille : une mise a jour est disponible. %@ est le numero de version (ex. v1.2.0). */
+"maj.disponible" = "Mise à jour %@";
+
+/* Info-bulle de la pastille de mise a jour. */
+"maj.aide" = "Ouvrir la page des versions sur GitHub";

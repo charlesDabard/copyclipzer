@@ -1,0 +1,35 @@
+name: CI
+
+# Depot prive : un seul runner, pas de matrice. Les Command Line Tools suffisent
+# pour tout construire (Package.swift n'utilise pas Xcode), et macos-14 fournit
+# une toolchain Swift recente alignee sur la plateforme macOS 13 du package.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Version de Swift
+        run: swift --version
+
+      - name: Compilation debug
+        run: swift build
+
+      - name: Compilation release
+        run: swift build -c release
+
+      # Les tests sont une cible executable (voir l'en-tete de Package.swift) :
+      # XCTest exigerait Xcode, absent d'un runner headless avec seulement les CLT.
+      - name: Tests
+        run: swift run CopyclipzerTests
+
+      # NE PAS lancer ici : `swift run CopyclipzerCaptures focus-demo`.
+      # Ce mode exige une session graphique (fenetre cle) qu'un runner GitHub
+      # headless n'a pas. Garde-fou LOCAL pre-PR, jamais en CI.

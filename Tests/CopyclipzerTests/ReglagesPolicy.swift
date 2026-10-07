@@ -1,0 +1,1 @@
+../../Sources/Copyclipzer/ReglagesPolicy.swift
