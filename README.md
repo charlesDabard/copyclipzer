@@ -12,7 +12,6 @@ Un gestionnaire de presse-papiers pour macOS, rapide et discret. Il garde l'hist
 - **Recherche dans les images** : le texte des captures d'écran est reconnu (OCR) et devient cherchable.
 - **Épinglez** les entrées importantes pour les garder en tête de liste.
 - **Collez en texte brut**, sans la mise en forme d'origine.
-- **Chiffré au repos** : le contenu est chiffré sur le disque (AES-GCM), la clé vit dans le Trousseau.
 - **Respecte votre confidentialité** : un contenu marqué confidentiel (mots de passe d'un gestionnaire comme 1Password, etc.) n'est jamais enregistré.
 - **Tout se règle depuis le menu de l'engrenage** : taille et durée de rétention de l'historique, applications exclues, raccourci, ouverture au démarrage.
 - **Français et anglais.**

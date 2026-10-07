@@ -25,6 +25,12 @@ final class CaptureService {
     /// jamais deux, sinon un contenu réellement vide se relirait à chaque tour.
     private var relance = false
 
+    /// Appelé après l'enregistrement d'une NOUVELLE image, avec son id et ses octets.
+    /// Sert à lancer l'OCR en tâche de fond depuis la couche applicative : ce fichier est
+    /// pur et symlinké dans les tests, il ne connaît ni Vision ni AppKit. Sans ce signal,
+    /// l'OCR ne tournait qu'au rattrapage du démarrage, jamais sur une image copiée à chaud.
+    var onImageCapturee: ((String, Data) -> Void)?
+
     init(pasteboard: PasteboardReading, store: Store, policy: CapturePolicy, deviceID: String) {
         self.pasteboard = pasteboard
         self.store = store
@@ -81,8 +87,12 @@ final class CaptureService {
             thumb: snapshot.vignette
         )
 
-        return (try? store.insert(item, payload: payload,
-                                  uti: snapshot.types.first ?? "public.utf8-plain-text")) ?? false
+        let cree = (try? store.insert(item, payload: payload,
+                                      uti: snapshot.types.first ?? "public.utf8-plain-text")) ?? false
+        if cree, item.kind == .image, let octets = snapshot.image {
+            onImageCapturee?(item.id, octets)
+        }
+        return cree
     }
 
     /// Déclare qu'un `changeCount` vient de NOUS et ne doit pas être capturé.

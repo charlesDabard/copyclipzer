@@ -94,6 +94,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  policy: CapturePolicy(blockedBundleIDs: Set(reglages.appsExclues),
                                                        secretPattern: nil),
                                  deviceID: Host.current().localizedName ?? "mac")
+        // OCR à CHAUD : une image copiée pendant que l'app tourne est OCRisée aussitôt, en
+        // tâche de fond, pour devenir cherchable sans attendre le rattrapage du prochain
+        // démarrage. Même pipeline que `rattraperLOCR`, déclenché par la capture.
+        capture.onImageCapturee = { [weak self] id, octets in
+            DispatchQueue.global(qos: .utility).async {
+                let texte = SystemPasteboard.texteOCR(octets)
+                try? self?.store.definirTexteRecherche(id, texte ?? "")
+            }
+        }
         // `capture:` n'a volontairement pas de valeur par défaut. Sans lui, notre propre
         // écriture dans le presse-papiers revient en base : coller une entrée RTF en texte
         // brut n'écrit que `searchText`, le hash diffère de l'original, et l'historique

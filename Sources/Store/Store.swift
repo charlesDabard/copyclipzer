@@ -4,20 +4,13 @@ import Foundation
 final class Store {
     private let db: Database
     private let blobs: BlobStore
-    /// Le chiffreur de la colonne BLOB `payload.data`. Le contenu est chiffré au write et
-    /// déchiffré au read, avec repli sur les octets bruts pour les données d'avant la
-    /// migration. Les métadonnées (`title`, `searchText`) restent en clair : le FTS5 en a besoin.
-    private let chiffre: Chiffre
 
     /// `blobs` a une valeur par défaut : les appelants qui ne se soucient pas des
     /// charges utiles lourdes gardent `Store(path:)`, et le dossier de blobs se pose
     /// à côté du fichier de base.
-    init(path: String, blobs: BlobStore? = nil,
-         chiffre: Chiffre = Chiffre(cle: TrousseauCle.cle())) throws {
+    init(path: String, blobs: BlobStore? = nil) throws {
         db = try Database(path: path)
-        self.chiffre = chiffre
-        self.blobs = blobs ?? BlobStore(folder: (path as NSString).deletingLastPathComponent + "/blobs",
-                                        chiffre: chiffre)
+        self.blobs = blobs ?? BlobStore(folder: (path as NSString).deletingLastPathComponent + "/blobs")
         try Schema.migrate(db)
     }
 
@@ -53,7 +46,7 @@ final class Store {
                 if payload.count > BlobStore.seuil {
                     chemin = try .text(blobs.write(payload, id: item.id))
                 } else {
-                    blob = .blob(chiffre.chiffrer(payload))
+                    blob = .blob(payload)
                 }
             }
             try db.run("INSERT INTO payload (itemID, uti, data, filePath) VALUES (?,?,?,?)",
@@ -115,7 +108,7 @@ final class Store {
             return blobs.read(path)
         }
         if case let .blob(d)? = row["data"] {
-            return chiffre.dechiffrer(d) ?? d
+            return d
         }
         return nil
     }

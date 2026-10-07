@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 // Tests de la logique pure de Copyclipzer. Lancement : swift run CopyclipzerTests
@@ -75,10 +74,6 @@ func makeSandbox() -> String {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     return dir
 }
-
-/// Clé de test fixe : le chiffrement se mesure avec une clé connue, et le Trousseau
-/// n'est jamais touché depuis les tests.
-let chiffreDeTest = Chiffre(cle: SymmetricKey(size: .bits256))
 
 section("Harnais", attendu: 1)
 check("le harnais compte les succès", true)
@@ -177,7 +172,7 @@ do {
 
 section("Store · insertion et déduplication", attendu: 6)
 do {
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     // Dates explicites et distinctes de bout en bout. Avec le `at: 0` par défaut du
     // brief, les trois lignes partagent le même `createdAt`, `ORDER BY createdAt DESC`
     // ne départage plus rien et le tri se joue au rowid : le test « le plus récent
@@ -212,7 +207,7 @@ do {
 
 section("Store · recherche", attendu: 6)
 do {
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     // Dates explicites et distinctes : le repli LIKE trie par createdAt DESC, et un
     // tri qui retombe sur le rowid ne mesurerait aucune notion de récence.
     try store.insert(.text("https://github.com/p0deje/Maccy", hash: "h1", device: "m", at: 10),
@@ -260,7 +255,7 @@ section("Store · blobs et rétention", attendu: 8)
 do {
     let sandbox = makeSandbox()
     let dossierBlobs = sandbox + "/blobs"
-    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs, chiffre: chiffreDeTest), chiffre: chiffreDeTest)
+    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs))
 
     // Dates explicites et distinctes, toutes sous celles des vingt entrées de rétention
     // qui suivent : les deux charges utiles doivent être condamnées par la purge sans
@@ -315,88 +310,11 @@ do {
     echec("blobs et rétention sans erreur", "\(error)")
 }
 
-section("Chiffre · AES-GCM", attendu: 3)
-let chiffreEssai = Chiffre(cle: SymmetricKey(size: .bits256))
-let clairEssai = Data("secret de test 1234567890".utf8)
-let scelleEssai = chiffreEssai.chiffrer(clairEssai)
-check("un scellé se rouvre à l'identique", chiffreEssai.dechiffrer(scelleEssai) == clairEssai)
-check("le scellé ne contient pas le clair",
-      scelleEssai.range(of: Data("secret de test".utf8)) == nil)
-check("une autre clé rend nil",
-      Chiffre(cle: SymmetricKey(size: .bits256)).dechiffrer(scelleEssai) == nil)
-
-section("BlobStore · chiffrement au repos", attendu: 3)
-do {
-    let sandbox = makeSandbox()
-    let chiffre = Chiffre(cle: SymmetricKey(size: .bits256))
-    let blobs = BlobStore(folder: sandbox + "/blobs", chiffre: chiffre)
-    let clair = Data("contenu confidentiel unique XYZZY".utf8)
-    let chemin = try blobs.write(clair, id: "blob-chiffre")
-    check("écrit puis relu à l'identique", blobs.read(chemin) == clair)
-
-    let brut = FileManager.default.contents(atPath: chemin)
-    check("le fichier sur disque ne contient pas le clair",
-          brut?.range(of: Data("confidentiel".utf8)) == nil,
-          "octets \(brut?.count ?? -1)")
-
-    // Rétrocompatibilité : un fichier écrit AVANT le chiffrement est en clair, et le
-    // repli doit le rendre tel quel plutôt que de rendre l'historique illisible.
-    let cheminClair = sandbox + "/blobs/ecrit-en-clair"
-    try clair.write(to: URL(fileURLWithPath: cheminClair))
-    check("un fichier en clair se relit par repli", blobs.read(cheminClair) == clair)
-} catch {
-    echec("BlobStore chiffré sans erreur", "\(error)")
-}
-
-section("Store · contenu chiffré au repos", attendu: 5)
-do {
-    let sandbox = makeSandbox()
-    let chiffre = Chiffre(cle: SymmetricKey(size: .bits256))
-    let dossierBlobs = sandbox + "/blobs"
-    let store = try Store(path: sandbox + "/db.sqlite",
-                          blobs: BlobStore(folder: dossierBlobs, chiffre: chiffre),
-                          chiffre: chiffre)
-
-    // Sous le seuil : la charge vit dans la colonne BLOB.
-    let petit = Data("petit secret en base ABCDEF".utf8)
-    let mini = ClipItem.text("petit", hash: "cc1", device: "m", at: 1)
-    try store.insert(mini, payload: petit, uti: "public.utf8-plain-text")
-    try check("une charge sous le seuil se relit", store.payload(mini.id) == petit)
-
-    let inspecteur = try Database(path: sandbox + "/db.sqlite")
-    let brutBase = try inspecteur.query("SELECT data FROM payload WHERE itemID = ?",
-                                        [.text(mini.id)]).first?["data"]
-    var baseContientClair = false
-    if case let .blob(d)? = brutBase {
-        baseContientClair = d.range(of: Data("secret".utf8)) != nil
-    }
-    check("le BLOB en base ne contient pas le clair", !baseContientClair)
-
-    // Au-delà du seuil : la charge part sur disque.
-    let gros = Data(repeating: 0x41, count: 1_100_000) + Data("gros secret disque GHIJ".utf8)
-    let item = ClipItem.text("gros", hash: "cc2", device: "m", at: 2)
-    try store.insert(item, payload: gros, uti: "public.png")
-    try check("une charge sur disque se relit", store.payload(item.id) == gros)
-    let brutFichier = FileManager.default.contents(atPath: dossierBlobs + "/" + item.id)
-    check("le fichier sur disque ne contient pas le clair",
-          brutFichier?.range(of: Data("gros secret".utf8)) == nil)
-
-    // Rétrocompatibilité : un BLOB écrit en clair AVANT la migration reste lisible.
-    let ancien = ClipItem.text("ancien", hash: "cc3", device: "m", at: 3)
-    try store.insert(ancien, payload: nil, uti: "public.utf8-plain-text")
-    let clairAncien = Data("donnee davant chiffrement KLMNOP".utf8)
-    try inspecteur.run("UPDATE payload SET data = ? WHERE itemID = ?",
-                       [.blob(clairAncien), .text(ancien.id)])
-    try check("un BLOB en clair se relit par repli", store.payload(ancien.id) == clairAncien)
-} catch {
-    echec("Store chiffré sans erreur", "\(error)")
-}
-
 section("tâche 17 : épingler et supprimer une entrée", attendu: 10)
 do {
     let sandbox = makeSandbox()
     let dossierBlobs = sandbox + "/blobs"
-    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs, chiffre: chiffreDeTest), chiffre: chiffreDeTest)
+    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs))
 
     // --- épinglage ---
     let bascule = ClipItem.text("à épingler", hash: "e1", device: "m", at: 10)
@@ -473,7 +391,7 @@ section("Store · tout supprimer", attendu: 6)
 do {
     let sandbox = makeSandbox()
     let dossierBlobs = sandbox + "/blobs"
-    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs, chiffre: chiffreDeTest), chiffre: chiffreDeTest)
+    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs))
 
     // Une entrée épinglée, une ordinaire, et une charge utile assez grosse pour partir
     // sur le disque : « tout supprimer » doit toutes les emporter, l'épinglée et le
@@ -506,7 +424,7 @@ section("Store · tout sauf les épinglés", attendu: 7)
 do {
     let sandbox = makeSandbox()
     let dossierBlobs = sandbox + "/blobs"
-    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs, chiffre: chiffreDeTest), chiffre: chiffreDeTest)
+    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: dossierBlobs))
 
     // Une épinglée AVEC charge utile sur disque, et deux ordinaires dont une sur disque.
     // Le geste garde l'épinglée ET son fichier, et jette les deux autres avec le leur. Le
@@ -688,7 +606,7 @@ check("la règle d'expression régulière ne touche pas une image sans texte",
                                  image: Data([1, 2]), fileURLs: [],
                                  sourceBundleID: nil)) == .keep(.image))
 
-section("Service de capture", attendu: 16)
+section("Service de capture", attendu: 18)
 
 /// Presse-papiers de test. `poser` incrémente le compteur comme le fait le vrai
 /// `NSPasteboard`, ce qui permet de rejouer un changement sans AppKit.
@@ -719,7 +637,7 @@ final class FauxPresse: PasteboardReading {
 
 do {
     let faux = FauxPresse()
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     let service = CaptureService(pasteboard: faux, store: store,
                                  policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
                                  deviceID: "macA")
@@ -796,7 +714,7 @@ do {
 // distincts qui traversent le même appel, c'est ce qui prouve le branchement.
 do {
     let faux = FauxPresse()
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     let service = CaptureService(
         pasteboard: faux, store: store,
         policy: CapturePolicy(blockedBundleIDs: ["com.apple.keychainaccess"], secretPattern: nil),
@@ -825,6 +743,37 @@ do {
     echec("capture avec liste noire sans erreur", "\(error)")
 }
 
+do {
+    // OCR à chaud : capturer une image déclenche `onImageCapturee`, où l'assemblage branche
+    // l'OCR en tâche de fond. Vision n'est pas testable ici, on vérifie le SIGNAL : une
+    // image le lève avec ses octets, un texte ne le lève pas. Sans ce signal, l'OCR ne
+    // tournait qu'au rattrapage du démarrage, jamais sur une image copiée à chaud.
+    let faux = FauxPresse()
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    let service = CaptureService(pasteboard: faux, store: store,
+                                 policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
+                                 deviceID: "macA")
+    var idRecu: String?
+    var octetsRecus: Data?
+    service.onImageCapturee = { id, octets in idRecu = id; octetsRecus = octets }
+
+    let octetsImage = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4])
+    faux.poser(RawSnapshot(types: ["public.png"], text: "", rtf: nil,
+                           image: octetsImage, fileURLs: [], sourceBundleID: "com.apple.Preview"))
+    _ = service.poll()
+    check("une image capturée déclenche l'OCR, avec ses octets",
+          octetsRecus == octetsImage && idRecu != nil,
+          "le callback onImageCapturee n'a pas reçu l'image")
+
+    idRecu = nil
+    octetsRecus = nil
+    faux.poser(RawSnapshot(types: ["public.utf8-plain-text"], text: "du texte", rtf: nil,
+                           image: nil, fileURLs: [], sourceBundleID: nil))
+    _ = service.poll()
+    check("une capture texte ne déclenche pas l'OCR",
+          idRecu == nil, "onImageCapturee a été appelé à tort pour du texte")
+}
+
 // Écriture encore en cours. Mesuré le 2026-09-30 : quatre dictées SuperWhisper ont
 // été lues 40 ms après leur écriture et n'ont rien laissé en base alors que le texte
 // tenait encore une seconde. Le compteur avait été consommé par une lecture vide, et
@@ -834,7 +783,7 @@ do {
 section("Capture : une écriture en cours est relue", attendu: 7)
 do {
     let faux = FauxPresse()
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     let service = CaptureService(pasteboard: faux, store: store,
                                  policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
                                  deviceID: "macA")
@@ -888,7 +837,7 @@ do {
 section("tâche 12 : la capture ignore notre propre écriture", attendu: 4)
 do {
     let faux = FauxPresse()
-    let store = try Store(path: makeSandbox() + "/db.sqlite", chiffre: chiffreDeTest)
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
     let service = CaptureService(pasteboard: faux, store: store,
                                  policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
                                  deviceID: "macA")
@@ -2698,7 +2647,7 @@ do {
 section("tâche 22 : la vignette des entrées image", attendu: 12)
 do {
     let sandbox = makeSandbox()
-    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: sandbox + "/blobs", chiffre: chiffreDeTest), chiffre: chiffreDeTest)
+    let store = try Store(path: sandbox + "/db.sqlite", blobs: BlobStore(folder: sandbox + "/blobs"))
 
     // Des octets qui ne sont PAS une image : la fabrication vit dans
     // `SystemPasteboard`, qui importe AppKit et n'est jamais symlinké ici. Ce qui se
