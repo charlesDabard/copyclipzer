@@ -68,11 +68,23 @@ func verifierLesSections() {
     }
 }
 
+/// Dossiers jetables créés pendant le run, supprimés juste avant `exit`. Sans ce
+/// ménage, chaque run laissait 16 dossiers dans le temporaire système : 1 743 en
+/// trois jours, environ 9 Go, mesuré le 2026-10-10 sur un disque saturé.
+var sandboxes: [String] = []
+
 /// Dossier jetable, pour ne jamais écrire dans le vrai Application Support.
 func makeSandbox() -> String {
     let dir = NSTemporaryDirectory() + "copyclipzer-tests-" + UUID().uuidString
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    sandboxes.append(dir)
     return dir
+}
+
+func nettoyerLesSandboxes() {
+    for dir in sandboxes {
+        try? FileManager.default.removeItem(atPath: dir)
+    }
 }
 
 section("Harnais", attendu: 1)
@@ -3442,4 +3454,5 @@ do {
 
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
+nettoyerLesSandboxes()
 exit(failures == 0 ? 0 : 1)
