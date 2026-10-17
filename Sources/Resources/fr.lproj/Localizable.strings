@@ -81,6 +81,12 @@
 /* Menu de l'icone de barre : ouvrir au demarrage. */
 "menu.ouvrir_demarrage" = "Ouvrir au démarrage";
 
+/* Menu de l'icone : ouvre le fichier de journal dans Console. */
+"menu.afficher_journal" = "Afficher le journal";
+
+/* Menu de l'icone : case du journal detaille (trace de chaque raccourci du geste Cmd). */
+"menu.journal_detaille" = "Journal détaillé du geste";
+
 /* Menu de l'icone de barre : quitter l'application. */
 "menu.quitter" = "Quitter Copyclipzer";
 

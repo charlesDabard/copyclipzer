@@ -101,21 +101,41 @@ enum RepresentationDeCollage: Equatable {
     case rtf
     /// La charge utile en `.tiff`.
     case image
+    /// Les FICHIERS eux-mêmes, en URL de fichier, doublés de leurs chemins en `.string`.
+    case fichiers
 }
 
 /// Choix de la représentation à écrire, en fonction PURE.
 ///
 /// Deux motifs de repli sur le texte, et ils ne se recouvrent pas : le texte brut
 /// demandé par l'utilisateur (touche Z du geste), et l'absence de charge utile,
-/// qui arrive quand le blob a été purgé sous l'entrée. Les listes de fichiers
-/// repartent en texte en v1, faute de représentation dédiée.
+/// qui arrive quand le blob a été purgé sous l'entrée.
+///
+/// Les fichiers échappent au second motif : ils n'ont PAS de charge utile, leurs chemins
+/// sont dans `searchText`. Correction du 2026-10-17 : ils repartaient en texte, donc
+/// recoller un fichier copié dans le Finder collait son chemin au lieu du fichier, dans
+/// le Finder, Mail ou Slack. Le texte brut, lui, rend toujours les chemins.
 func representationAEcrire(kind: ClipKind, texteBrut: Bool, aPayload: Bool) -> RepresentationDeCollage {
+    if kind == .files {
+        return texteBrut ? .texte : .fichiers
+    }
     guard !texteBrut, aPayload else { return .texte }
     switch kind {
     case .rtf: return .rtf
     case .image: return .image
     case .text, .files: return .texte
     }
+}
+
+/// Les chemins à recoller en fichiers : une ligne par chemin dans `searchText` (c'est
+/// ainsi que la capture les joint), lignes vides écartées, et seulement ceux qui EXISTENT
+/// encore. Un fichier supprimé ou déplacé depuis la copie ne peut pas se coller ; s'il
+/// n'en reste aucun, `Paster` retombe sur les chemins en texte. `existe` est injecté pour
+/// que la règle se teste sans disque.
+func cheminsACollerEnFichiers(_ texte: String, existe: (String) -> Bool) -> [String] {
+    texte.split(whereSeparator: \.isNewline)
+        .map(String.init)
+        .filter { !$0.isEmpty && existe($0) }
 }
 
 /// Restaure-t-on le presse-papiers d'origine après un collage ? Non, par défaut.

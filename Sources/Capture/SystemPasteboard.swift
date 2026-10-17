@@ -107,7 +107,9 @@ final class SystemPasteboard: PasteboardReading {
 
     func read() -> RawSnapshot? {
         let types = pb.types?.map(\.rawValue) ?? []
-        let image = pb.data(forType: .tiff) ?? pb.data(forType: .png)
+        let image = typesDImageALire(declares: types).lazy
+            .compactMap { self.pb.data(forType: NSPasteboard.PasteboardType($0)) }
+            .first
         let urls = (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? [])
             .filter(\.isFileURL).map(\.path)
         return RawSnapshot(

@@ -1,5 +1,7 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
+import IOKit
 
 /// Assemble les modules du projet, et c'est le seul fichier qui les connaît tous. Il ne
 /// décide rien : chaque règle vit dans le module pur qui la porte, ce qui est la raison
@@ -80,7 +82,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// abonne dans son `init`, donc toute mutation faite ici se voit à l'écran.
     private let model = OverlayModel()
 
+    /// Le chien de garde du geste : vivant seulement pendant que le geste est ouvert. Voir
+    /// `surveillerLeRelachementDeCmd()`.
+    private var chienDeGarde: Timer?
+    /// Ticks consécutifs où le chien de garde a vu Cmd relâché. Voir son corps.
+    private var relachementsVus = 0
+    /// Relance du démarrage du tap quand le système l'a refusé alors que l'accessibilité
+    /// est accordée. Voir `demarrerTap()`.
+    private var relanceDuTap: Timer?
+    /// Le sondage de la saisie sécurisée, qui coupe le tap sans rien dire. Voir
+    /// `surveillerLaSaisieSecurisee()`.
+    private var sondageSaisieSecurisee: Timer?
+    private var saisieSecuriseeActive = false
+
     func applicationDidFinishLaunching(_: Notification) {
+        // Le journal d'abord : tout ce qui suit peut échouer, et c'est précisément ce qu'il
+        // doit voir. Le mode détaillé est relu dans les préférences, il survit au relancement.
+        journal.configurer(dossier: Journal.dossierParDefaut)
+        journal.detaille = UserDefaults.standard.bool(forKey: Self.cleJournalDetaille)
+        journalDeDemarrage()
+
         let support = FileManager.default.urls(for: .applicationSupportDirectory,
                                                in: .userDomainMask)[0]
             .appendingPathComponent("Copyclipzer")
@@ -88,8 +109,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // `try!` assumé, et c'est le seul du projet. Une application dont la base refuse
         // de s'ouvrir n'a rien à offrir : tout le reste du montage en dépend et échouerait
-        // de toute façon, plus tard et plus obscurément.
-        store = try! Store(path: support.appendingPathComponent("history.sqlite").path)
+        // de toute façon, plus tard et plus obscurément. L'erreur part au journal AVANT
+        // l'arrêt, sinon le plantage ne dirait jamais pourquoi.
+        let cheminDeLaBase = support.appendingPathComponent("history.sqlite").path
+        do {
+            store = try Store(path: cheminDeLaBase)
+        } catch {
+            journal.erreur("demarrage", "la base refuse de s'ouvrir (\(cheminDeLaBase)) : \(error)")
+            journal.vider()
+            fatalError("Copyclipzer : base illisible : \(error)")
+        }
+        journal.info("demarrage", "base ouverte, \(journal.essayer("store", "comptage") { try store.count() } ?? -1) entrées")
         capture = CaptureService(pasteboard: SystemPasteboard(), store: store,
                                  policy: CapturePolicy(blockedBundleIDs: Set(reglages.appsExclues),
                                                        secretPattern: nil),
@@ -99,8 +129,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // démarrage. Même pipeline que `rattraperLOCR`, déclenché par la capture.
         capture.onImageCapturee = { [weak self] id, octets in
             DispatchQueue.global(qos: .utility).async {
+                let debut = Date()
                 let texte = SystemPasteboard.texteOCR(octets)
-                try? self?.store.definirTexteRecherche(id, texte ?? "")
+                journal.info("ocr", "image OCRisée en \(millisecondesDepuis(debut)) ms, "
+                    + "\(texte?.count ?? 0) caractères reconnus")
+                journal.essayer("store", "écriture du texte OCR") {
+                    try self?.store.definirTexteRecherche(id, texte ?? "")
+                }
                 DispatchQueue.main.async {
                     guard let self else { return }
                     // L'OCR vient de finir. On reflète son texte dans l'entrée en cache et,
@@ -159,6 +194,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rattraperLesVignettes()
         rattraperLOCR()
         verifierLesMisesAJour()
+        surveillerLaSaisieSecurisee()
+    }
+
+    func applicationWillTerminate(_: Notification) {
+        journal.info("demarrage", "arrêt de Copyclipzer")
+        journal.vider()
+    }
+
+    /// Trace les passages en saisie sécurisée, et QUI la tient.
+    ///
+    /// Quand une application active la saisie sécurisée (un champ de mot de passe, le
+    /// « Secure Keyboard Entry » d'un terminal, un gestionnaire de mots de passe), macOS
+    /// cesse de livrer les frappes aux taps. Le geste Cmd et la capture instantanée de
+    /// Cmd-C se taisent alors sans erreur nulle part, et certaines applications oublient
+    /// de la relâcher. Sans cette trace, « Cmd ne marche plus » n'a pas de cause visible.
+    /// Sondé toutes les deux secondes : `IsSecureEventInputEnabled` ne coûte rien, et seul
+    /// un CHANGEMENT écrit une ligne.
+    private func surveillerLaSaisieSecurisee() {
+        sondageSaisieSecurisee = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let active = IsSecureEventInputEnabled()
+            guard active != saisieSecuriseeActive else { return }
+            saisieSecuriseeActive = active
+            if active {
+                let pid = AppDelegate.pidDeLaSaisieSecurisee()
+                let app = pid.flatMap { NSRunningApplication(processIdentifier: $0) }
+                let qui = app.map { "\($0.localizedName ?? "?") (\($0.bundleIdentifier ?? "?"), pid \($0.processIdentifier))" }
+                    ?? pid.map { "pid \($0)" } ?? "processus inconnu"
+                journal.alerte("clavier", "saisie sécurisée ACTIVÉE par \(qui) : le geste Cmd et "
+                    + "la capture instantanée de Cmd-C sont muets tant qu'elle dure")
+            } else {
+                journal.info("clavier", "saisie sécurisée désactivée, le geste Cmd répond de nouveau")
+            }
+        }
+    }
+
+    /// Le processus qui tient la saisie sécurisée, lu dans le registre IOKit, là où
+    /// WindowServer le publie (`kCGSSessionSecureInputPID` de `IOConsoleUsers`). Aucune
+    /// API publique ne le donne autrement.
+    private static func pidDeLaSaisieSecurisee() -> pid_t? {
+        let racine = IORegistryGetRootEntry(kIOMainPortDefault)
+        defer { IOObjectRelease(racine) }
+        guard let brut = IORegistryEntryCreateCFProperty(racine, "IOConsoleUsers" as CFString,
+                                                         kCFAllocatorDefault, 0)?.takeRetainedValue(),
+              let utilisateurs = brut as? [[String: Any]] else { return nil }
+        for utilisateur in utilisateurs {
+            if let pid = utilisateur["kCGSSessionSecureInputPID"] as? Int {
+                return pid_t(pid)
+            }
+        }
+        return nil
     }
 
     /// Au lancement, demande à GitHub s'il existe une version plus récente et, le cas
@@ -166,12 +252,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// release : le check ne doit jamais déranger ni bloquer. Ne télécharge aucun binaire.
     private func verifierLesMisesAJour() {
         VerificateurMaJ.verifier { [weak self] version in
+            if let version {
+                journal.info("maj", "version \(version) disponible")
+            }
             self?.rechercheModel.majDisponible = version
         }
     }
 
+    /// Clé des préférences du journal détaillé, basculé depuis le menu de l'icône.
+    static let cleJournalDetaille = "journalDetaille"
+
+    /// Les faits qui expliquent, après coup, presque toutes les pannes signalées : quelle
+    /// version tourne, depuis quel bundle (le piège du doublon de bundle, voir
+    /// docs/CERTIFICAT-LOCAL.md), avec quelle disposition de clavier (le geste lisait les
+    /// touches en QWERTY), quelle répétition de touche, et si l'accessibilité est accordée.
+    private func journalDeDemarrage() {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let systeme = ProcessInfo.processInfo.operatingSystemVersionString
+        let hiToolbox = UserDefaults(suiteName: "com.apple.HIToolbox")
+        let disposition = hiToolbox?.string(forKey: "AppleCurrentKeyboardLayoutInputSourceID") ?? "inconnue"
+        let globales = UserDefaults.standard
+        let repetition = "\(globales.object(forKey: "InitialKeyRepeat") ?? "défaut")"
+            + "/\(globales.object(forKey: "KeyRepeat") ?? "défaut")"
+        journal.info("demarrage", "Copyclipzer \(version) (\(build)) sur macOS \(systeme), "
+            + "pid \(ProcessInfo.processInfo.processIdentifier)")
+        journal.info("demarrage", "bundle \(Bundle.main.bundleIdentifier ?? "aucun (binaire nu)") "
+            + "à \(Bundle.main.bundlePath)")
+        journal.info("demarrage", "clavier \(disposition), répétition \(repetition), "
+            + "accessibilité \(Permissions.accessibiliteAccordee ? "accordée" : "NON accordée")")
+    }
+
     /// Unique site d'appel de `EventTap.start()`, voir le point 2 ci-dessus.
     private func demarrerTap() {
+        journal.info("permission", "accessibilité accordée, démarrage du tap")
         // `[weak self]` sur les TROIS fermetures. Le délégué retient le tap et le tap
         // retient ses fermetures : les capturer fortement fermerait le cycle, le `deinit`
         // d'`EventTap` ne s'exécuterait jamais, et les quatre gestes qu'il porte
@@ -184,7 +299,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Le raccourci global ouvre le panneau de recherche. `afficher()` fait déjà
             // `NSApp.activate(ignoringOtherApps: true)`, donc le panneau devient clavier :
             // c'est l'avantage mesuré sur le clic d'icône, qui pouvait le laisser non clé.
-            onRaccourciGlobal: { [weak self] in self?.recherchePanel.afficher() },
+            //
+            // Renvoyé au tour de boucle suivant, hors du callback du tap : `afficher()`
+            // relit jusqu'à cinq cents entrées vignettes comprises et pose une fenêtre, de
+            // quoi dépasser le délai que macOS accorde au tap, qui le coupe alors
+            // (`tapDisabledByTimeout`) et laisse filer les frappes suivantes sans nous.
+            onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } },
             // L'état vivant, relu par le tap à chaque événement. Il n'a qu'un usage :
             // effacer la capture de Cmd-C et Cmd-X pendant que l'overlay est ouvert, où X
             // épingle. Le repli `.inactif` couvre le seul cas où `self` est parti.
@@ -195,7 +315,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         // `EventTap.start()` échoue si l'accessibilité n'est pas accordée : le geste Cmd ne
         // marche alors pas, mais le reste de l'application (capture, panneau) tourne.
-        _ = tap.start()
+        //
+        // L'échec ne passe plus en silence (le tap le journalise), et il se RETENTE.
+        // `surveiller` ne rappelle qu'une fois, au premier « accordé » : un refus à cet
+        // instant précis, une signature que TCC n'a pas encore réconciliée par exemple,
+        // laissait le geste mort jusqu'au relancement. Toutes les cinq secondes, tant
+        // qu'il n'a pas démarré.
+        guard !tap.start() else { return }
+        relanceDuTap?.invalidate()
+        relanceDuTap = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] minuteur in
+            guard let self, tap.start() else { return }
+            minuteur.invalidate()
+            relanceDuTap = nil
+        }
     }
 
     /// Traduit une sortie de la machine en gestes sur l'interface, et rend `true` quand
@@ -215,7 +347,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if doitRelireLeCompte(etat: machine.etat, input: input) {
             machine.count = (try? store.recent(limit: 9).count) ?? 0
         }
+        let etatAvant = machine.etat
         let (sortie, consomme) = machine.recevoir(input)
+        // La trace fine de chaque entrée, en mode détaillé seulement. Elle ne voit que ce
+        // que la machine voit, donc des raccourcis Cmd, jamais une frappe ordinaire : le
+        // tap relaie tout ce qui n'a pas Cmd avant même d'appeler `onInput`.
+        journal.detail("geste", "\(etatAvant) + \(input) -> \(sortie)\(consomme ? ", avalé" : "") "
+            + "-> \(machine.etat), index \(machine.index)/\(machine.count)")
 
         // Aucun `overlay.rafraichir()` dans ce `switch`, et ce n'est pas un oubli :
         // `OverlayPanel` s'abonne à `model.objectWillChange` dans son `init` et se
@@ -223,9 +361,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // déclenche donc le réaccord.
         switch sortie {
         case .ouvrir:
-            model.items = (try? store.recent(limit: 9)) ?? []
+            model.items = journal.essayer("store", "lecture des entrées du geste") {
+                try store.recent(limit: 9)
+            } ?? []
             model.index = 0
             model.texteBrut = false
+            journal.info("geste", "ouvert sur \(model.items.count) entrées")
+            surveillerLeRelachementDeCmd()
             // L'ouverture LOGIQUE est immédiate, l'affichage attend. Depuis que le geste
             // s'arme sur Cmd, l'overlay s'ouvre à chaque Cmd-V, donc des dizaines de fois
             // par jour : sans ce report il clignoterait à chacun. Cmd relâché avant le
@@ -253,33 +395,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // souris et que le panneau de recherche.
             if model.index < model.items.count {
                 let entree = model.items[model.index]
-                try? store.setPinned(entree.id, !entree.pinned)
-                model.items = (try? store.recent(limit: 9)) ?? []
+                journal.essayer("store", "épinglage depuis le geste") {
+                    try store.setPinned(entree.id, !entree.pinned)
+                }
+                model.items = journal.essayer("store", "relecture après épinglage") {
+                    try store.recent(limit: 9)
+                } ?? []
                 rafraichirLApercuDuGeste()
             }
         case .fermer:
+            journal.info("geste", "fermé par Échap, rien n'est collé")
             fermerLePanneau()
         case let .coller(index, brut):
+            journal.info("geste", "collage de l'entrée de rang \(index + 1)\(brut ? " en texte brut" : "")")
             fermerLePanneau()
             // Pas de `DispatchQueue.main.async` ici. `Paster.coller` renvoie déjà le
             // travail sur la boucle principale, de l'intérieur, précisément pour que le
             // site d'appel ne puisse pas oublier de le faire.
             if index < model.items.count {
                 paster.coller(model.items[index], texteBrut: brut)
+            } else {
+                journal.alerte("geste", "rang \(index + 1) hors liste (\(model.items.count) entrées), rien collé")
             }
         case .collerNatif:
             // L'utilisateur a relâché Cmd sans rien choisir : ce n'était pas un geste
             // Copyclipzer, c'était un Cmd-V. On lui rend le sien, à l'identique, et le
             // presse-papiers n'est ni lu ni écrit. Voir `Paster.reposerCollageNatif`.
+            journal.detail("geste", "Cmd-V natif reposé")
             fermerLePanneau()
             Paster.reposerCollageNatif()
+        case .collerNatifPuisRejouer:
+            // Un raccourci Cmd enchaîné sur un Cmd-V, sans navigation : le collage natif
+            // d'abord, puis la frappe, que le tap a avalée et que l'on rejoue dans l'ordre.
+            // Seul son code de touche part au journal : c'est un raccourci, pas du texte.
+            let touche = tap?.evenementEnCours?.getIntegerValueField(.keyboardEventKeycode) ?? -1
+            journal.info("geste", "raccourci Cmd enchaîné sur Cmd-V (touche \(touche)) : "
+                + "collage natif puis touche rejouée")
+            fermerLePanneau()
+            Paster.reposerCollageNatifPuisRejouer(tap?.evenementEnCours?.copy())
         case let .supprimer(index):
             // La machine a DÉJÀ recalé `count` et `index` : il ne reste qu'à supprimer en
             // base et à relire.
             if index < model.items.count {
-                try? store.delete(model.items[index].id)
+                let id = model.items[index].id
+                journal.essayer("store", "suppression depuis le geste") { try store.delete(id) }
             }
-            model.items = (try? store.recent(limit: 9)) ?? []
+            model.items = journal.essayer("store", "relecture après suppression") {
+                try store.recent(limit: 9)
+            } ?? []
             model.index = min(machine.index, max(0, model.items.count - 1))
             if model.items.isEmpty {
                 fermerLePanneau()
@@ -301,6 +464,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         apercu.masquer()
         arreterLaSurveillanceDuClic()
         arreterLaSurveillanceDuMouvement()
+        arreterLeChienDeGarde()
+    }
+
+    /// Le chien de garde du relâchement de Cmd, vivant du V qui ouvre jusqu'à la fermeture.
+    ///
+    /// Le geste ne sait se refermer que sur le `flagsChanged` du relâchement. Si le tap ne
+    /// le voit pas (coupé par macOS pour lenteur, `tapDisabledByTimeout`), la machine reste
+    /// ouverte : le raccourci Cmd suivant était avalé, et le prochain modificateur relâché
+    /// collait au milieu d'une autre frappe. Toutes les 100 ms, on relit l'état MATÉRIEL du
+    /// clavier (`hidSystemState`, ce que les doigts tiennent, et non l'état combiné que nos
+    /// propres Cmd-V synthétiques colorent), et la règle pure `relachementManque` décide.
+    private func surveillerLeRelachementDeCmd() {
+        guard chienDeGarde == nil else { return }
+        chienDeGarde = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let tenue = CGEventSource.flagsState(.hidSystemState).contains(.maskCommand)
+            guard relachementManque(etat: machine.etat, commandeTenue: tenue) else {
+                relachementsVus = 0
+                if machine.etat == .inactif { arreterLeChienDeGarde() }
+                return
+            }
+            // Deux constats d'affilée, 100 ms au moins, avant d'agir : un relâchement
+            // ordinaire est vu par le tap en une milliseconde, et le chien de garde ne
+            // doit pas lui couper la parole quand le tick tombe juste entre les deux.
+            relachementsVus += 1
+            guard relachementsVus >= 2 else { return }
+            // Le panneau figé à la souris attend Échap ou un clic, relâcher Cmd n'y veut
+            // rien dire : on laisse le geste ouvert, sans retracer à chaque tour.
+            guard !machine.fige else { return }
+            journal.alerte("geste", "relâchement de Cmd MANQUÉ par le tap (état \(machine.etat)), "
+                + "rattrapé par le chien de garde")
+            _ = traiter(.modificateurUp)
+            if machine.etat == .inactif { arreterLeChienDeGarde() }
+        }
+    }
+
+    private func arreterLeChienDeGarde() {
+        chienDeGarde?.invalidate()
+        chienDeGarde = nil
+        relachementsVus = 0
     }
 
     /// Le trombone de SF Symbols est dessiné EN DIAGONALE, et il n'existe aucune variante
@@ -365,6 +568,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         demarrage.state = LoginItem.actif ? .on : .off
         menu.addItem(demarrage)
         menu.addItem(.separator())
+        // Le journal, à portée de clic : c'est lui qu'on ouvre quand « Cmd ne marche plus ».
+        let afficherJournal = NSMenuItem(title: l10n("menu.afficher_journal"),
+                                         action: #selector(afficherLeJournal), keyEquivalent: "")
+        afficherJournal.target = self
+        menu.addItem(afficherJournal)
+        let detaille = NSMenuItem(title: l10n("menu.journal_detaille"),
+                                  action: #selector(basculerLeJournalDetaille), keyEquivalent: "")
+        detaille.target = self
+        detaille.state = journal.detaille ? .on : .off
+        menu.addItem(detaille)
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: l10n("menu.quitter"),
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -377,6 +591,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// s'affichera.
     @objc private func basculerOuvertureAuDemarrage() {
         LoginItem.basculer()
+    }
+
+    /// Ouvre le journal dans l'application par défaut des `.log`, Console sur un Mac neuf,
+    /// qui suit le fichier en direct.
+    @objc private func afficherLeJournal() {
+        journal.vider()
+        guard let fichier = journal.fichier else { return }
+        NSWorkspace.shared.open(fichier)
+    }
+
+    /// Le mode détaillé trace chaque entrée du geste. Persisté, pour qu'un bug à reproduire
+    /// après un relancement soit tracé dès le démarrage.
+    @objc private func basculerLeJournalDetaille() {
+        journal.detaille.toggle()
+        UserDefaults.standard.set(journal.detaille, forKey: Self.cleJournalDetaille)
+        journal.info("journal", "mode détaillé \(journal.detaille ? "ACTIVÉ" : "désactivé")")
     }
 
     /// Branche les gestes du panneau de recherche sur le stockage. Le panneau ne connaît
@@ -395,12 +625,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         rechercheModel.onEpingler = { [weak self] id in
             guard let self, let entree = entreesDuPanneau[id] else { return }
-            try? store.setPinned(id, !entree.pinned)
+            journal.essayer("store", "épinglage depuis le panneau") { try self.store.setPinned(id, !entree.pinned) }
             filtrer(rechercheModel.requete)
         }
         rechercheModel.onSupprimer = { [weak self] id in
             guard let self else { return }
-            try? store.delete(id)
+            journal.essayer("store", "suppression depuis le panneau") { try self.store.delete(id) }
             filtrer(rechercheModel.requete)
         }
         // L'action intelligente du bouton d'une ligne : la reconnaissance vit dans la
@@ -416,7 +646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 l10n("confirmation.vider_tout.info"),
                 l10n("action.tout_supprimer")
             ) { [weak self] in
-                try? self?.store.deleteAll()
+                journal.info("panneau", "historique vidé entièrement")
+                journal.essayer("store", "tout supprimer") { try self?.store.deleteAll() }
                 self?.filtrer(self?.rechercheModel.requete ?? "")
             }
         }
@@ -426,7 +657,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 l10n("confirmation.vider_sauf_epingles.info"),
                 l10n("action.supprimer")
             ) { [weak self] in
-                try? self?.store.deleteAllExceptPinned()
+                journal.info("panneau", "historique vidé sauf les épinglées")
+                journal.essayer("store", "tout supprimer sauf les épinglées") { try self?.store.deleteAllExceptPinned() }
                 self?.filtrer(self?.rechercheModel.requete ?? "")
             }
         }
@@ -490,7 +722,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Aucune charge utile n'est lue : seul `title`, déjà en base, s'affiche. C'est le même
     /// chemin pur et testé que l'ancien menu de barre.
     private func filtrer(_ requete: String) {
-        let entrees = (try? store.search(requete, limit: plafondDuMenu)) ?? []
+        let entrees = journal.essayer("store", "recherche (\(requete.count) caractères)") {
+            try store.search(requete, limit: plafondDuMenu)
+        } ?? []
         rechercheModel.lignes = elementsDuMenu(entrees: entrees, recherche: requete)
         entreesDuPanneau = Dictionary(entrees.map { ($0.id, $0) },
                                       uniquingKeysWith: { premier, _ in premier })
@@ -562,12 +796,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func appliquerReglages() {
         capture.definirBundlesExclus(Set(reglages.appsExclues))
-        try? store.purge(keeping: reglages.tailleHistorique)
+        journal.info("reglages", "taille \(reglages.tailleHistorique), rétention \(reglages.retentionJours) j, "
+            + "\(reglages.appsExclues.count) app(s) exclue(s), raccourci code \(reglages.raccourciOuverture.keycode)")
+        journal.essayer("store", "purge par le nombre") { try store.purge(keeping: reglages.tailleHistorique) }
         // Rétention par le temps. 0 désactive : on n'appelle pas `purgerAvant` du tout,
         // sinon un seuil calculé sur 0 jour emporterait tout l'historique non épinglé.
         if reglages.retentionJours > 0 {
             let seuil = Date().timeIntervalSince1970 - Double(reglages.retentionJours) * 86400
-            try? store.purgerAvant(seuil)
+            journal.essayer("store", "purge par l'âge") { try store.purgerAvant(seuil) }
         }
     }
 
@@ -581,8 +817,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onEpingler = { [weak self] rang in
             guard let self, rang < model.items.count else { return }
             let entree = model.items[rang]
-            try? store.setPinned(entree.id, !entree.pinned)
-            model.items = (try? store.recent(limit: 9)) ?? []
+            journal.essayer("store", "épinglage à la souris") { try self.store.setPinned(entree.id, !entree.pinned) }
+            model.items = journal.essayer("store", "relecture après épinglage") { try self.store.recent(limit: 9) } ?? []
             rafraichirLApercuDuGeste()
         }
         model.onSupprimer = { [weak self] rang in
@@ -683,12 +919,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fois, borné par le nombre d'images en base.
     private func rattraperLesVignettes() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self, let ids = try? store.imagesSansVignette(limit: 500) else { return }
+            guard let self,
+                  let ids = journal.essayer("store", "liste des images sans vignette", {
+                      try self.store.imagesSansVignette(limit: 500)
+                  }) else { return }
+            guard !ids.isEmpty else { return }
+            var faites = 0
             for id in ids {
-                guard let octets = try? store.payload(id),
+                guard let octets = journal.essayer("store", "lecture d'une image", { try self.store.payload(id) }) ?? nil,
                       let vignette = SystemPasteboard.vignette(octets) else { continue }
-                try? store.setThumb(id, vignette)
+                if journal.essayer("store", "écriture d'une vignette", { try self.store.setThumb(id, vignette) }) != nil {
+                    faites += 1
+                }
             }
+            journal.info("rattrapage", "\(faites) vignettes fabriquées sur \(ids.count) images")
         }
     }
 
@@ -701,12 +945,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// et ne pas relire cette image à chaque lancement.
     private func rattraperLOCR() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self, let ids = try? store.imagesSansTexteOCR(limit: 500) else { return }
+            guard let self,
+                  let ids = journal.essayer("store", "liste des images sans OCR", {
+                      try self.store.imagesSansTexteOCR(limit: 500)
+                  }) else { return }
+            guard !ids.isEmpty else { return }
+            let debut = Date()
             for id in ids {
-                guard let octets = try? store.payload(id) else { continue }
+                guard let octets = journal.essayer("store", "lecture d'une image", { try self.store.payload(id) }) ?? nil
+                else { continue }
                 let texte = SystemPasteboard.texteOCR(octets)
-                try? store.definirTexteRecherche(id, texte ?? "")
+                journal.essayer("store", "écriture du texte OCR") { try self.store.definirTexteRecherche(id, texte ?? "") }
             }
+            journal.info("rattrapage", "OCR de \(ids.count) images en \(millisecondesDepuis(debut)) ms")
         }
     }
 }

@@ -22,6 +22,13 @@ enum HotKeyInput: Equatable {
     /// parce que supprimer DÉCALE la liste : le recalage de `count` et de `index` est
     /// une règle, pas un détail d'affichage, et une règle se teste.
     case supprimerLaSelection
+    /// Une frappe RÉPÉTÉE par le clavier (touche tenue), hors flèches. Ce n'est pas une
+    /// intention : maintenir Cmd-V une demi-seconde de trop faisait défiler l'historique
+    /// au rythme de la répétition (450 ms puis 75 ms sur ce poste, mesuré le 2026-10-17
+    /// dans `InitialKeyRepeat` et `KeyRepeat`), et relâcher collait une AUTRE entrée que
+    /// celle du presse-papiers. Les flèches, elles, gardent leur répétition : tenir la
+    /// flèche bas pour descendre la liste est un geste voulu.
+    case repetition
 }
 
 enum HotKeyOutput: Equatable {
@@ -37,6 +44,11 @@ enum HotKeyOutput: Equatable {
     /// Voir `aNavigue` : c'est la protection de fidélité de tous les collages de la
     /// machine, et non un raccourci d'implémentation.
     case collerNatif
+    /// Reposer le Cmd-V d'origine PUIS rejouer la frappe en cours, dans cet ordre. C'est
+    /// la sortie d'un raccourci Cmd enchaîné sur un Cmd-V sans relâcher Cmd : Cmd-V puis
+    /// Cmd-Entrée pour envoyer, Cmd-V puis Cmd-S pour enregistrer. Voir
+    /// `(.ouvert, .key(.other))`.
+    case collerNatifPuisRejouer
     /// Retirer l'entrée de ce rang. La machine a déjà recalé `count` et `index` quand
     /// elle le rend : l'assemblage n'a plus qu'à supprimer en base et relire.
     case supprimer(index: Int)
@@ -187,6 +199,22 @@ struct HotKeyMachine {
             return (.coller(index: index, texteBrut: texteBrut), false)
 
         case (.ouvert, .key(.other)):
+            // Une touche qui n'appartient pas au geste, alors que l'utilisateur n'a rien
+            // fait d'autre que Cmd-V : il ne naviguait pas, il enchaînait un raccourci.
+            // L'avaler, c'était perdre son Cmd-S, son Cmd-Entrée, son Cmd-A, et ne coller
+            // qu'au relâchement de Cmd, APRÈS la touche qu'il croyait avoir tapée. Signalé
+            // le 2026-10-17 sous la forme « les Cmd ne marchent pas ». On rend donc son
+            // collage natif tout de suite, puis sa frappe, dans l'ordre. La machine revient
+            // à `.arme` : Cmd est toujours tenu, un V suivant rouvrira un geste neuf.
+            //
+            // Une fois la navigation commencée, ou le panneau figé à la souris, la touche
+            // reste avalée : l'utilisateur est DANS le geste, et un caractère parasite ne
+            // doit pas s'écrire dans le document caché sous la liste.
+            guard !aNavigue, !fige else { return (.rien, true) }
+            etat = .arme
+            return (.collerNatifPuisRejouer, true)
+
+        case (.ouvert, .repetition):
             return (.rien, true)
 
         default:
@@ -204,21 +232,45 @@ struct HotKeyMachine {
 /// est le seul morceau pur du tap, elle reste donc du côté pur pour être testée
 /// sans traîner l'interface graphique derrière elle.
 extension HotKeyKey {
-    static func traduire(_ code: Int64) -> HotKeyKey? {
+    /// Traduit une frappe en touche du geste.
+    ///
+    /// `caractere` est ce que la disposition ACTIVE produit pour cette touche, Cmd ignoré.
+    /// Z et X se reconnaissent par lui, et plus par leur position. Correction du
+    /// 2026-10-17 : la table ne connaissait que la position QWERTY, or sur la disposition
+    /// française de ce poste le code 6 rend « w » et le code 13 rend « z » (mesuré par
+    /// `CGEvent.keyboardGetUnicodeString`). La touche marquée Z ne faisait donc rien et
+    /// était avalée, pendant que Cmd-W, fermer la fenêtre, basculait le texte brut.
+    ///
+    /// Le reste garde la POSITION, exprès. Échap et les flèches n'ont pas de caractère
+    /// imprimable. Les chiffres non plus sur AZERTY, où la rangée du haut rend « & é " ' »
+    /// sans Maj, alors que Cmd-1 y reste la même touche physique. Et V reste le code 9
+    /// parce que c'est ce code que `Paster.poserCmdV` repose : reconnaître V au caractère
+    /// sur une disposition où il vit ailleurs (Dvorak) ferait ouvrir le geste sur un
+    /// Cmd-V puis reposer une autre touche.
+    ///
+    /// Sans caractère (nil ou vide), repli sur la position QWERTY d'avant, pour qu'une
+    /// frappe sans texte reste traduite comme elle l'a toujours été.
+    static func traduire(_ code: Int64, caractere: String? = nil) -> HotKeyKey? {
         switch code {
         case 9: return .v
-        case 6: return .z
-        case 7: return .x
         case 53: return .escape
         case 125: return .down
         case 126: return .up
-        // La plage doit aller jusqu'à 28 : les codes de 7 et 8 valent 26 et 28,
-        // donc un `18...25` laisserait passer ces deux chiffres sans les traduire.
-        // Les codes 24 et 27 tombent dans la plage sans être des chiffres, le
-        // dictionnaire rend alors nil et la touche est ignorée, ce qui est correct.
-        case 18 ... 28:
-            let chiffres: [Int64: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
-            return chiffres[code].map { HotKeyKey.digit($0) }
+        default: break
+        }
+        if let chiffre = chiffreDeLaTouche(code) {
+            return .digit(chiffre)
+        }
+        if let lettre = caractere?.lowercased(), !lettre.isEmpty {
+            switch lettre {
+            case "z": return .z
+            case "x": return .x
+            default: return nil
+            }
+        }
+        switch code {
+        case 6: return .z
+        case 7: return .x
         default: return nil
         }
     }
@@ -283,10 +335,16 @@ enum HotKeyDecision: Equatable {
 /// ouvert. Sans lui, un X d'épinglage couperait aussi la sélection de l'application
 /// de dessous. Il est passé sans valeur par défaut, exprès : un défaut ferait passer
 /// pour « overlay fermé » tout site d'appel qui l'aurait oublié, y compris le tap.
+///
+/// `caractere` et `estRepetition` ont une valeur par défaut, contrairement à `etat`, parce
+/// qu'une omission n'y fabrique pas un faux « overlay fermé » : sans caractère, Z et X
+/// retombent sur leur position QWERTY d'avant, et sans le drapeau la répétition navigue
+/// comme avant. Le tap les passe tous les deux, et un test lit sa source pour le vérifier.
 func decider(type: HotKeyEventType, commandEnfonce: Bool, majEnfonce: Bool,
              optionEnfonce: Bool, controlEnfonce: Bool,
              estSynthetique: Bool, code: Int64,
-             etat: HotKeyState) -> HotKeyDecision
+             etat: HotKeyState,
+             caractere: String? = nil, estRepetition: Bool = false) -> HotKeyDecision
 {
     if estSynthetique {
         return .relayer
@@ -336,7 +394,14 @@ func decider(type: HotKeyEventType, commandEnfonce: Bool, majEnfonce: Bool,
         // Cmd-K ouvre une recherche, Cmd-Entrée valide, Cmd-Espace ouvre Spotlight.
         // La machine ne consomme `.other` qu'en état ouvert, donc les raccourcis Cmd
         // ordinaires continuent de passer tant que l'overlay est fermé.
-        return .soumettre(.key(HotKeyKey.traduire(code) ?? .other))
+        let touche = HotKeyKey.traduire(code, caractere: caractere) ?? .other
+        // La répétition automatique ne navigue plus, sauf aux flèches : voir
+        // `HotKeyInput.repetition`. La machine ne l'avale qu'overlay ouvert, donc une
+        // touche tenue hors du geste se répète normalement dans l'application.
+        if estRepetition, touche != .up, touche != .down {
+            return .soumettre(.repetition)
+        }
+        return .soumettre(.key(touche))
 
     case .autre:
         return .relayer
@@ -400,4 +465,20 @@ func correspondAuRaccourci(keycode: Int, option: Bool, commande: Bool,
 func doitRelireLeCompte(etat: HotKeyState, input: HotKeyInput) -> Bool {
     guard case .key(.v) = input else { return false }
     return etat == .arme
+}
+
+/// Le relâchement de Cmd a-t-il été MANQUÉ ? Vrai quand la machine attend encore un
+/// relâchement alors que le clavier dit que Cmd n'est plus tenu.
+///
+/// Le cas n'a rien de théorique. macOS coupe un tap qui répond trop lentement
+/// (`tapDisabledByTimeout`), et les événements de cette fenêtre passent sans nous : si le
+/// relâchement de Cmd y tombe, la machine reste `.ouvert`. Le geste bloqué avalait alors
+/// le raccourci Cmd suivant, et le prochain modificateur relâché, Maj seul par exemple,
+/// déclenchait un collage fantôme au milieu d'une autre frappe. Le chien de garde de
+/// l'assemblage relit l'état matériel de Cmd et soumet ce relâchement lui-même.
+///
+/// `.arme` compte aussi : le rattrapage y est sans effet visible (retour au repos), mais
+/// laisser la machine armée sans Cmd fausserait le geste suivant.
+func relachementManque(etat: HotKeyState, commandeTenue: Bool) -> Bool {
+    etat != .inactif && !commandeTenue
 }
