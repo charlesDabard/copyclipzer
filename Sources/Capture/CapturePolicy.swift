@@ -71,3 +71,19 @@ struct CapturePolicy {
         return .ignore("vide")
     }
 }
+
+/// L'ordre dans lequel lire l'image du presse-papiers, selon les types DÉCLARÉS.
+///
+/// Le PNG d'abord quand la source l'offre. Correction du 2026-10-17 : le TIFF était
+/// demandé en premier, et le presse-papiers le FABRIQUE à la demande à partir du PNG,
+/// sans compression. Mesuré dans la base réelle : les 44 images y étaient en TIFF, jusqu'à
+/// 21 Mo l'une, 270 Mo de blobs, alors que la source déclarait `public.png`. Cette
+/// conversion, son empreinte SHA-256 et l'écriture du fichier se faisaient sur le fil
+/// principal, celui du tap clavier, et une capture d'écran 5K dépassait le plafond de
+/// 50 Mo : l'image était alors ignorée sans un mot. Sans PNG déclaré, le TIFF reste le
+/// premier choix, c'est le type que toute image Cocoa sait rendre.
+func typesDImageALire(declares: [String]) -> [String] {
+    let png = "public.png"
+    let tiff = "public.tiff"
+    return declares.contains(png) ? [png, tiff] : [tiff, png]
+}

@@ -6,7 +6,7 @@ Copyclipzer exige l'autorisation **Accessibilité** pour son tap clavier : sans 
 designated => identifier "io.github.copyclipzer" and certificate leaf = H"26b239c07f23c24385da3184e31cc7a0f08eefa1"
 ```
 
-Conséquence voulue : une autorisation accordée une fois survit aux reconstructions. Mesuré le 2026-09-28 : rebuild, remplacement dans /Applications et relance, le journal affiche `accessibilite accordee = OUI` et le tap redémarre (`~/Library/Application Support/Copyclipzer/diag.log`).
+Conséquence voulue : une autorisation accordée une fois survit aux reconstructions. Mesuré le 2026-09-28 : rebuild, remplacement dans /Applications et relance, le journal affiche `accessibilité accordée` et `tap clavier démarré` (`~/Library/Logs/Copyclipzer/copyclipzer.log`, ouvrable depuis le menu de l'icône : « Afficher le journal »).
 
 ## Le piège du doublon de bundle
 
@@ -19,7 +19,7 @@ Règle : **ne jamais ajouter le bundle du dossier projet dans Accessibilité**. 
 1. `tccutil reset Accessibility io.github.copyclipzer`
 2. Relancer l'app : `open /Applications/Copyclipzer.app`. Le dialogue système propose d'ouvrir les Réglages.
 3. Réglages Système > Confidentialité et sécurité > Accessibilité : ajouter `/Applications/Copyclipzer.app` (bouton plus) puis cocher.
-4. Vérifier : le tap redémarre seul en deux secondes, `surveiller a rappele` puis `le tap clavier a DEMARRE` apparaissent dans `diag.log`, sans relance. Procédure exécutée le 2026-09-28.
+4. Vérifier : le tap redémarre seul en deux secondes, `[permission] accessibilité accordée, démarrage du tap` puis `[tap] tap clavier démarré` apparaissent dans `copyclipzer.log`, sans relance. Un refus du système s'y lit en `ERREUR [tap] création du tap clavier REFUSÉE`, retenté toutes les cinq secondes. Procédure exécutée le 2026-09-28.
 
 ## Recréer le certificat s'il disparaît du trousseau
 

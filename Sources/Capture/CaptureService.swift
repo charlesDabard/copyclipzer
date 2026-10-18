@@ -57,21 +57,31 @@ final class CaptureService {
             return false
         }
         let decision = policy.decide(snapshot)
+        let source = snapshot.sourceBundleID ?? "app inconnue"
         guard case let .keep(kind) = decision else {
             // Le vide seul se relit. Un marqueur, une application exclue ou un motif
             // secret sont des refus définitifs : les relire ne changerait rien.
             if case .ignore("vide") = decision, !dueAUneRelance {
                 relance = true
             }
+            // Le motif part au journal, jamais le contenu. Le vide relu une seconde fois
+            // y figure aussi : c'est la trace d'une copie PERDUE (incident SuperWhisper).
+            if case let .ignore(motif) = decision, motif != "vide" || dueAUneRelance {
+                journal.info("capture", "copie ignorée (\(motif)) depuis \(source)")
+            }
             return false
         }
 
-        let payload = snapshot.image ?? snapshot.rtf
+        let payload = chargeUtile(kind: kind, snapshot: snapshot)
         let texte = snapshot.fileURLs.isEmpty
             ? (snapshot.text ?? "")
             : snapshot.fileURLs.joined(separator: "\n")
         let brut = payload ?? Data(texte.utf8)
-        guard brut.count <= BlobStore.plafond else { return false }
+        guard brut.count <= BlobStore.plafond else {
+            journal.alerte("capture", "copie \(kind.rawValue) de \(brut.count) octets IGNORÉE, au-delà du "
+                + "plafond de \(BlobStore.plafond) octets, depuis \(source)")
+            return false
+        }
 
         let hash = SHA256.hash(data: brut).map { String(format: "%02x", $0) }.joined()
         let now = Date().timeIntervalSince1970
@@ -87,12 +97,37 @@ final class CaptureService {
             thumb: snapshot.vignette
         )
 
-        let cree = (try? store.insert(item, payload: payload,
-                                      uti: snapshot.types.first ?? "public.utf8-plain-text")) ?? false
-        if cree, item.kind == .image, let octets = snapshot.image {
+        let cree = journal.essayer("capture", "enregistrement d'une copie \(kind.rawValue)") {
+            try store.insert(item, payload: payload, uti: snapshot.types.first ?? "public.utf8-plain-text")
+        }
+        switch cree {
+        case true?:
+            journal.info("capture", "nouvelle entrée \(kind.rawValue), \(brut.count) octets, depuis \(source)")
+        case false?:
+            journal.info("capture", "doublon \(kind.rawValue) remonté en tête, depuis \(source)")
+        case nil:
+            break
+        }
+        if cree == true, item.kind == .image, let octets = snapshot.image {
             onImageCapturee?(item.id, octets)
         }
-        return cree
+        return cree ?? false
+    }
+
+    /// Ce qui part dans `payload`, selon le type RETENU, et rien d'autre.
+    ///
+    /// Correction du 2026-10-17. La charge utile était `image ?? rtf` quel que soit le type
+    /// retenu, or le Finder dépose l'ICÔNE du fichier en TIFF à côté de son URL. Une copie
+    /// de fichier stockait donc 4 Mo d'icône (mesuré dans la base réelle) et, pire, son
+    /// empreinte était celle de l'icône : deux fichiers de même icône, deux PDF ou deux
+    /// dossiers, se confondaient en une seule entrée, le second effaçant le premier. Pour
+    /// les fichiers, l'empreinte porte désormais sur les chemins, comme pour le texte.
+    private func chargeUtile(kind: ClipKind, snapshot: RawSnapshot) -> Data? {
+        switch kind {
+        case .image: return snapshot.image
+        case .rtf: return snapshot.rtf
+        case .text, .files: return nil
+        }
     }
 
     /// Déclare qu'un `changeCount` vient de NOUS et ne doit pas être capturé.

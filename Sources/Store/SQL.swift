@@ -25,6 +25,17 @@ enum SQLError: Error, CustomStringConvertible {
 final class Database {
     private var handle: OpaquePointer?
 
+    /// Sérialise TOUT accès à la connexion, transactions comprises.
+    ///
+    /// `SQLITE_OPEN_FULLMUTEX` protège chaque appel C isolément, pas une suite d'appels.
+    /// Or la connexion est partagée entre le fil principal (capture, geste, panneau) et
+    /// les tâches de fond de l'OCR et des vignettes. Sans ce verrou, une écriture de fond
+    /// pouvait tomber AU MILIEU d'une transaction du fil principal et en partager le sort
+    /// (annulée avec elle sur un `ROLLBACK`), et `lastError` pouvait lire le message d'une
+    /// erreur survenue sur l'autre fil. Récursif parce que `transaction` rappelle `exec` et
+    /// `query` depuis le même fil.
+    private let verrou = NSRecursiveLock()
+
     init(path: String) throws {
         var h: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
@@ -42,6 +53,8 @@ final class Database {
     }
 
     func exec(_ sql: String) throws {
+        verrou.lock()
+        defer { verrou.unlock() }
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
             throw SQLError.step(lastError)
         }
@@ -52,6 +65,8 @@ final class Database {
     }
 
     func query(_ sql: String, _ binds: [SQLValue] = []) throws -> [[String: SQLValue]] {
+        verrou.lock()
+        defer { verrou.unlock() }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             throw SQLError.prepare(lastError)
@@ -93,6 +108,8 @@ final class Database {
     }
 
     func transaction(_ body: () throws -> Void) throws {
+        verrou.lock()
+        defer { verrou.unlock() }
         try exec("BEGIN IMMEDIATE")
         do { try body(); try exec("COMMIT") } catch { try? exec("ROLLBACK"); throw error }
     }

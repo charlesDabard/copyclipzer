@@ -68,11 +68,23 @@ func verifierLesSections() {
     }
 }
 
+/// Dossiers jetables créés pendant le run, supprimés juste avant `exit`. Sans ce
+/// ménage, chaque run laissait 16 dossiers dans le temporaire système : 1 743 en
+/// trois jours, environ 9 Go, mesuré le 2026-10-10 sur un disque saturé.
+var sandboxes: [String] = []
+
 /// Dossier jetable, pour ne jamais écrire dans le vrai Application Support.
 func makeSandbox() -> String {
     let dir = NSTemporaryDirectory() + "copyclipzer-tests-" + UUID().uuidString
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    sandboxes.append(dir)
     return dir
+}
+
+func nettoyerLesSandboxes() {
+    for dir in sandboxes {
+        try? FileManager.default.removeItem(atPath: dir)
+    }
 }
 
 section("Harnais", attendu: 1)
@@ -935,11 +947,15 @@ check("le Cmd qui déclenche le collage n'est pas consommé non plus",
 var inconnue = HotKeyMachine(count: 5)
 check("au repos, une touche inconnue file à l'application",
       inconnue.recevoir(.key(.other)).consomme == false)
+// Navigation commencée : l'utilisateur est DANS le geste. Sans navigation, la même
+// touche est un raccourci enchaîné sur Cmd-V et se rejoue, voir la section « raccourci
+// Cmd enchaîné » (correction du 2026-10-17).
 _ = inconnue.recevoir(.modificateurDown); _ = inconnue.recevoir(.key(.v))
+_ = inconnue.recevoir(.key(.down))
 let parasite = inconnue.recevoir(.key(.other))
-check("overlay ouvert, une touche inconnue ne déclenche rien", parasite.0 == .rien,
+check("overlay ouvert en navigation, une touche inconnue ne déclenche rien", parasite.0 == .rien,
       "obtenu \(parasite.0)")
-check("overlay ouvert, une touche inconnue est avalée", parasite.consomme == true)
+check("overlay ouvert en navigation, une touche inconnue est avalée", parasite.consomme == true)
 
 /// Hors brief : les bornes. Le brief teste UN déplacement, jamais la saturation, or
 /// un index qui dépasse count - 1 fait sortir la vue du tableau à l'affichage. On
@@ -1582,8 +1598,8 @@ check("une image sans charge utile retombe sur le texte",
 check("texte brut demandé sur une image donne du texte",
       representationAEcrire(kind: .image, texteBrut: true, aPayload: true) == .texte,
       "obtenu \(representationAEcrire(kind: .image, texteBrut: true, aPayload: true))")
-check("une liste de fichiers retombe sur le texte en v1",
-      representationAEcrire(kind: .files, texteBrut: false, aPayload: true) == .texte,
+check("une liste de fichiers se recolle en FICHIERS, plus en chemins texte",
+      representationAEcrire(kind: .files, texteBrut: false, aPayload: true) == .fichiers,
       "obtenu \(representationAEcrire(kind: .files, texteBrut: false, aPayload: true))")
 
 // La restauration. Correction du 2026-08-26 : elle n'est PLUS le comportement par
@@ -1648,7 +1664,8 @@ check("le colleur prend la restauration par défaut dans la fonction pure",
       sourceDuColleur.contains("restaurer: Bool = restaurationParDefaut"),
       "la valeur par défaut serait posée en dur dans Paster, hors de portée des tests")
 check("le tap passe la signature de nos propres événements à l'aiguillage",
-      sourceDuTap.contains("estSynthetique: Paster.estSynthetique(event, type: typePur)"),
+      sourceDuTap.contains("let synthetique = Paster.estSynthetique(event, type: typePur)")
+          && sourceDuTap.contains("estSynthetique: synthetique,"),
       "l'aiguillage ne verrait jamais la signature, le filtre serait débranché")
 // `coller` s'exécuterait dans le callback du tap : `.coller` sort de `decider` par
 // `.relayerApres`, donc `onInput` est appelé synchroniquement dans `traiter`. Avec une
@@ -2106,8 +2123,9 @@ check("overlay ouvert, C ne déclenche AUCUNE capture",
 var machineCOuverte = HotKeyMachine(count: 5)
 _ = machineCOuverte.recevoir(.modificateurDown)
 _ = machineCOuverte.recevoir(.key(.v))
+_ = machineCOuverte.recevoir(.key(.v)) // navigation commencée : on est DANS le geste
 let sortieCOuvert = entreeSoumise(cOuvert).map { machineCOuverte.recevoir($0) }
-check("overlay ouvert, C est AVALÉE sans rien faire",
+check("overlay ouvert en navigation, C est AVALÉE sans rien faire",
       sortieCOuvert?.0 == .rien && sortieCOuvert?.consomme == true,
       "obtenu \(String(describing: sortieCOuvert)) pour la décision \(cOuvert)")
 
@@ -2584,7 +2602,7 @@ do {
         sourceDuDelegue, apres: "private func brancherLePanneauDeRecherche() {"
     )
     check("le corps du branchement du panneau est isolable dans l'assemblage",
-          !corpsDuBranchement.isEmpty && corpsDuBranchement.count < 3000,
+          !corpsDuBranchement.isEmpty && corpsDuBranchement.count < 4000,
           "obtenu \(corpsDuBranchement.count) caractères")
 
     // Les actions d'une ligne atteignent bien le store.
@@ -2637,10 +2655,11 @@ do {
           "Option+Entrée ne serait qu'Entrée, le texte brut jamais atteint")
     check("Cmd+chiffre est routé par la fenêtre du panneau",
           sourceDuPanneauRecherche.contains("performKeyEquivalent(with event: NSEvent)")
-              && sourceDuPanneauRecherche.contains("charactersIgnoringModifiers"),
+              && sourceDuPanneauRecherche.contains("surChiffreCmd?(Int64(event.keyCode))")
+              && !sourceDuPanneauRecherche.contains("event.charactersIgnoringModifiers"),
           "un Cmd+chiffre n'atteint pas doCommandBy, l'y attendre ne ferait rien")
     check("Cmd+chiffre confie le rang à la règle pure",
-          sourceDuPanneauRecherche.contains("indexPourTouche(touche, nombreDeLignes: model.lignes.count)"),
+          sourceDuPanneauRecherche.contains("indexPourCodeDeTouche(code, nombreDeLignes: model.lignes.count)"),
           "le rang serait recalculé à la main, à côté de la règle testée")
 }
 
@@ -3400,8 +3419,8 @@ check("la détection du raccourci précède l'aiguillage du geste",
       "la machine verrait d'abord la frappe, et le geste pourrait l'avaler ou s'ouvrir dessus")
 
 check("l'assemblage branche le raccourci sur l'ouverture du panneau",
-      sourceDuDelegue.contains("onRaccourciGlobal: { [weak self] in self?.recherchePanel.afficher() }"),
-      "le panneau ne s'ouvrirait jamais par le raccourci")
+      sourceDuDelegue.contains("onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } }"),
+      "le panneau ne s'ouvrirait jamais par le raccourci, ou s'ouvrirait DANS le callback du tap")
 check("l'assemblage donne au tap le raccourci vivant des réglages",
       sourceDuDelegue.contains("raccourciGlobal: { [weak self] in self?.reglages.raccourciOuverture ?? .defaut }"),
       "un changement de réglage ne serait pas vu avant un relancement")
@@ -3440,6 +3459,427 @@ do {
           "une réponse d'erreur serait prise pour un tag")
 }
 
+// MARK: - Audit du 2026-10-17
+
+// Le journal. Ce qui se mesure ici : le format d'une ligne, la rotation, le silence tant
+// qu'il n'est pas configuré, `essayer`, le mode détaillé, et la règle de confidentialité,
+// qui se lit dans les SOURCES : aucun appel au journal ne doit interpoler un contenu copié.
+section("Journal · format, rotation et confidentialité", attendu: 18)
+do {
+    let date = Date(timeIntervalSince1970: 0)
+    let ligne = ligneDeJournal(date: date, niveau: .alerte, categorie: "geste", message: "a\nb\r\nc")
+    check("une ligne porte le niveau calé et la catégorie entre crochets",
+          ligne.contains(" ALERTE [geste] "), "obtenu \(ligne)")
+    check("une ligne de journal ne devient jamais deux lignes",
+          !ligne.contains("\n") && !ligne.contains("\r") && ligne.hasSuffix("a ⏎ b ⏎ c"),
+          "obtenu \(ligne)")
+    check("la date est horodatée à la milliseconde",
+          ligne.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} "#,
+                      options: .regularExpression) != nil, "obtenu \(ligne)")
+
+    check("un fichier vide ne tourne jamais, même pour une ligne géante",
+          !doitTourner(tailleActuelle: 0, ajout: 10_000, plafond: 100))
+    check("sous le plafond, on ne tourne pas",
+          !doitTourner(tailleActuelle: 50, ajout: 40, plafond: 100))
+    check("au-delà du plafond, on tourne",
+          doitTourner(tailleActuelle: 80, ajout: 40, plafond: 100))
+    check("l'archive garde l'extension .log pour Console",
+          nomDArchive("copyclipzer.log", rang: 1) == "copyclipzer.1.log",
+          "obtenu \(nomDArchive("copyclipzer.log", rang: 1))")
+
+    // Non configuré : rien sur disque. Configuré : la ligne y est. Les deux sens.
+    let muet = Journal()
+    muet.info("test", "rien")
+    muet.vider()
+    check("un journal non configuré n'a aucun fichier", muet.fichier == nil)
+
+    let dossier = URL(fileURLWithPath: makeSandbox())
+    let ecrit = Journal()
+    ecrit.configurer(dossier: dossier)
+    ecrit.info("test", "première ligne")
+    ecrit.vider()
+    let contenu = ecrit.fichier.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("un journal configuré écrit la ligne dans son fichier",
+          contenu.contains("INFO   [test] première ligne"), "obtenu « \(contenu) »")
+
+    struct Panne: Error, CustomStringConvertible { var description: String { "disque plein" } }
+    let reussi = ecrit.essayer("store", "lecture") { 42 }
+    let rate: Int? = ecrit.essayer("store", "écriture") { throw Panne() }
+    ecrit.vider()
+    let apresEssais = ecrit.fichier.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("essayer rend la valeur quand rien ne lève", reussi == 42)
+    check("essayer rend nil ET journalise l'erreur avec son contexte",
+          rate == nil && apresEssais.contains("ERREUR [store] écriture : disque plein"),
+          "obtenu « \(apresEssais) »")
+
+    ecrit.detail("geste", "invisible")
+    ecrit.detaille = true
+    ecrit.detail("geste", "visible")
+    ecrit.vider()
+    let apresDetail = ecrit.fichier.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("le mode détaillé coupé n'écrit rien", !apresDetail.contains("invisible"))
+    check("le mode détaillé actif écrit la trace", apresDetail.contains("DETAIL [geste] visible"))
+
+    // Rotation réelle, sur un plafond minuscule.
+    let dossierTournant = URL(fileURLWithPath: makeSandbox())
+    let tournant = Journal(plafond: 300)
+    tournant.configurer(dossier: dossierTournant)
+    for i in 0 ..< 40 {
+        tournant.info("rotation", "ligne numéro \(i) pour remplir le fichier")
+    }
+    tournant.vider()
+    let fm = FileManager.default
+    let courant = (try? fm.attributesOfItem(atPath: dossierTournant
+            .appendingPathComponent("copyclipzer.log").path)[.size] as? Int) ?? -1
+    check("la rotation crée les archives .1 et .2",
+          fm.fileExists(atPath: dossierTournant.appendingPathComponent("copyclipzer.1.log").path)
+              && fm.fileExists(atPath: dossierTournant.appendingPathComponent("copyclipzer.2.log").path))
+    check("la rotation ne garde que deux archives", !fm.fileExists(atPath: dossierTournant
+            .appendingPathComponent("copyclipzer.3.log").path))
+    check("le fichier courant reste sous son plafond", courant > 0 && courant <= 300,
+          "obtenu \(courant) octets")
+
+    // Confidentialité : aucune ligne qui appelle le journal n'interpole un contenu.
+    let sources = ["Sources/Copyclipzer/AppDelegate.swift", "Sources/Capture/CaptureService.swift",
+                   "Sources/Paste/Paster.swift", "Sources/HotKey/EventTap.swift",
+                   "Sources/Overlay/RecherchePanel.swift"]
+    // Une LONGUEUR se journalise (`texte?.count`), le texte lui-même jamais.
+    let interdits = #"\\\((item\.|entree\.|snapshot\.)?(searchText|title|text)\b(?!\??\.count)|\\\(texte\b(?!\??\.count)|\\\(requete\b(?!\??\.count)|\\\(touche\.titre"#
+    var fautives: [String] = []
+    for chemin in sources {
+        let texte = (try? String(contentsOf: racineDuPaquet.appendingPathComponent(chemin), encoding: .utf8)) ?? ""
+        for ligne in texte.split(separator: "\n") where ligne.contains("journal.")
+            || ligne.trimmingCharacters(in: .whitespaces).hasPrefix("+ \"")
+        {
+            if ligne.range(of: interdits, options: .regularExpression) != nil {
+                fautives.append("\(chemin): \(ligne.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+    }
+    check("aucun appel au journal n'écrit le contenu copié ni la recherche", fautives.isEmpty,
+          "fuite possible : \(fautives)")
+    check("l'assemblage configure le journal au lancement, dans ~/Library/Logs",
+          sourceDuDelegue.contains("journal.configurer(dossier: Journal.dossierParDefaut)")
+              && Journal.dossierParDefaut.path.hasSuffix("Library/Logs/Copyclipzer"),
+          "le journal n'irait que vers le journal unifié, jamais dans un fichier")
+}
+
+section("Journal · branché sur les pannes silencieuses", attendu: 5)
+check("un tap refusé par le système laisse une ERREUR au journal",
+      sourceDuTap.contains("journal.erreur(\"tap\", \"création du tap clavier REFUSÉE"),
+      "le geste mort ne laisserait aucune trace, comme avant le 2026-10-17")
+check("un tap désactivé par macOS laisse une alerte au journal",
+      sourceDuTap.contains("tap désactivé par le système"))
+check("le démarrage refusé du tap est retenté", sourceDuDelegue.contains("guard !tap.start() else { return }")
+          && sourceDuDelegue.contains("relanceDuTap = Timer.scheduledTimer"))
+check("la saisie sécurisée est surveillée, avec le processus qui la tient",
+      sourceDuDelegue.contains("IsSecureEventInputEnabled()")
+          && sourceDuDelegue.contains("kCGSSessionSecureInputPID"))
+check("le menu de l'icône ouvre le journal et bascule le mode détaillé",
+      sourceDuDelegue.contains("#selector(afficherLeJournal)")
+          && sourceDuDelegue.contains("#selector(basculerLeJournalDetaille)"))
+
+// Cmd-V puis un autre raccourci Cmd, sans relâcher Cmd. Avant le 2026-10-17, la seconde
+// touche était avalée et le collage n'arrivait qu'au relâchement : « les Cmd ne marchent
+// pas ».
+section("Geste · raccourci Cmd enchaîné sur un Cmd-V", attendu: 10)
+do {
+    var m = HotKeyMachine(count: 5)
+    _ = m.recevoir(.modificateurDown)
+    _ = m.recevoir(.key(.v))
+    let enchaine = m.recevoir(.key(.other))
+    check("Cmd-V puis Cmd-S colle nativement PUIS rejoue S",
+          enchaine.0 == .collerNatifPuisRejouer, "obtenu \(enchaine.0)")
+    check("la touche est avalée pour être rejouée après le collage, dans l'ordre",
+          enchaine.consomme == true)
+    check("la machine revient à armé, Cmd étant toujours tenu", m.etat == .arme, "obtenu \(m.etat)")
+    check("relâcher Cmd ensuite ne colle pas une seconde fois",
+          m.recevoir(.modificateurUp).0 == .rien)
+
+    var rouvre = HotKeyMachine(count: 5)
+    _ = rouvre.recevoir(.modificateurDown); _ = rouvre.recevoir(.key(.v))
+    _ = rouvre.recevoir(.key(.other))
+    check("un V suivant rouvre un geste neuf", rouvre.recevoir(.key(.v)).0 == .ouvrir)
+
+    var figee = HotKeyMachine(count: 5)
+    _ = figee.recevoir(.modificateurDown); _ = figee.recevoir(.key(.v))
+    _ = figee.recevoir(.sourisEntree)
+    let dansLaSouris = figee.recevoir(.key(.other))
+    check("panneau figé à la souris, la touche reste avalée sans collage",
+          dansLaSouris.0 == .rien && dansLaSouris.consomme, "obtenu \(dansLaSouris)")
+
+    let branche = corpsDeMethode(sourceDuDelegue, apres: "case .collerNatifPuisRejouer:")
+    check("l'assemblage ferme le panneau et confie la repose au colleur",
+          sourceDuDelegue.contains("case .collerNatifPuisRejouer:")
+              && sourceDuDelegue.contains("Paster.reposerCollageNatifPuisRejouer(tap?.evenementEnCours?.copy())"),
+          "obtenu \(branche.prefix(200))")
+    let repose = corpsDeMethode(sourceDuColleur, apres: "static func reposerCollageNatifPuisRejouer(_ frappe: CGEvent?) {")
+    let avantLaFrappe = repose.range(of: "poserCmdV()")?.lowerBound
+    let laFrappe = repose.range(of: "frappe.post(tap: .cghidEventTap)")?.lowerBound
+    check("le Cmd-V part AVANT la frappe rejouée",
+          avantLaFrappe != nil && laFrappe != nil && avantLaFrappe! < laFrappe!,
+          "Cmd-V puis Cmd-Entrée enverrait le message avant d'y coller")
+    check("la frappe rejouée est signée, et ne touche pas au presse-papiers",
+          repose.contains("frappe.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)")
+              && !repose.contains("NSPasteboard") && !repose.contains("pb."),
+          "le tap la soumettrait une seconde fois à la machine")
+    check("le tap expose la frappe en cours le temps de onInput, et seulement là",
+          sourceDuTap.contains("evenementEnCours = event\n            defer { evenementEnCours = nil }"))
+}
+
+// La répétition automatique. Mesuré sur ce poste : 450 ms avant la première répétition
+// puis une toutes les 75 ms. Tenir Cmd-V un peu longtemps collait une autre entrée.
+section("Geste · la répétition automatique ne navigue plus", attendu: 8)
+do {
+    check("un V répété est soumis comme répétition",
+          entreeSoumise(decider(type: .keyDown, commandEnfonce: true, majEnfonce: false,
+                                optionEnfonce: false, controlEnfonce: false, estSynthetique: false,
+                                code: 9, etat: .ouvert, estRepetition: true)) == .repetition)
+    check("une flèche répétée garde sa navigation",
+          entreeSoumise(decider(type: .keyDown, commandEnfonce: true, majEnfonce: false,
+                                optionEnfonce: false, controlEnfonce: false, estSynthetique: false,
+                                code: 125, etat: .ouvert, estRepetition: true)) == .key(.down))
+    check("un V non répété reste un V",
+          entreeSoumise(decider(type: .keyDown, commandEnfonce: true, majEnfonce: false,
+                                optionEnfonce: false, controlEnfonce: false, estSynthetique: false,
+                                code: 9, etat: .ouvert, estRepetition: false)) == .key(.v))
+
+    var tenu = HotKeyMachine(count: 5)
+    _ = tenu.recevoir(.modificateurDown)
+    _ = tenu.recevoir(.key(.v))
+    var sorties: [(HotKeyOutput, consomme: Bool)] = []
+    for _ in 0 ..< 6 {
+        sorties.append(tenu.recevoir(.repetition))
+    }
+    // AVALÉE, et pas seulement sans effet : relayée, chaque répétition repartirait vers
+    // l'application en Cmd-V natif, et collerait six fois sous le panneau ouvert.
+    check("overlay ouvert, la répétition est avalée sans rien faire",
+          sorties.allSatisfy { $0.0 == .rien && $0.consomme } && tenu.index == 0,
+          "obtenu \(sorties), index \(tenu.index)")
+    check("Cmd-V tenu puis relâché colle le presse-papiers, pas une autre entrée",
+          tenu.recevoir(.modificateurUp).0 == .collerNatif)
+
+    var arme = HotKeyMachine(count: 5)
+    _ = arme.recevoir(.modificateurDown)
+    check("hors geste ouvert, une répétition n'est jamais avalée",
+          arme.recevoir(.repetition).consomme == false)
+    var repos = HotKeyMachine(count: 5)
+    check("au repos non plus", repos.recevoir(.repetition).consomme == false)
+    check("le tap lit la répétition et la passe à l'aiguillage",
+          sourceDuTap.contains("event.getIntegerValueField(.keyboardEventAutorepeat) != 0")
+              && sourceDuTap.contains("estRepetition: estRepetition)"))
+}
+
+// La disposition du clavier. Mesuré le 2026-10-17 sur la disposition française de ce
+// poste : le code 6 rend « w », le code 13 rend « z », le code 18 rend « & ».
+section("Geste · touches lues selon la disposition active", attendu: 14)
+do {
+    check("AZERTY : la touche marquée Z (code 13) est Z", HotKeyKey.traduire(13, caractere: "z") == .z)
+    check("AZERTY : la touche marquée W (code 6) n'est PLUS Z",
+          HotKeyKey.traduire(6, caractere: "w") == nil,
+          "obtenu \(String(describing: HotKeyKey.traduire(6, caractere: "w")))")
+    check("QWERTZ : Z au code 16 est Z", HotKeyKey.traduire(16, caractere: "z") == .z)
+    check("Verr. Maj ne change rien : « Z » majuscule est Z", HotKeyKey.traduire(13, caractere: "Z") == .z)
+    check("X se lit au caractère", HotKeyKey.traduire(7, caractere: "x") == .x)
+    check("sans caractère, repli sur la position QWERTY d'avant",
+          HotKeyKey.traduire(6) == .z && HotKeyKey.traduire(7) == .x)
+    check("AZERTY : la rangée du haut reste des chiffres, « & » vaut 1",
+          HotKeyKey.traduire(18, caractere: "&") == .digit(1)
+              && HotKeyKey.traduire(25, caractere: "ç") == .digit(9))
+    check("V reste lu à sa position, celle que le collage natif repose",
+          HotKeyKey.traduire(9, caractere: "v") == .v && HotKeyKey.traduire(9, caractere: "k") == .v)
+    check("Échap et les flèches restent lues à leur position",
+          HotKeyKey.traduire(53, caractere: "\u{1b}") == .escape && HotKeyKey.traduire(125, caractere: nil) == .down)
+    check("l'aiguillage passe le caractère à la traduction",
+          entreeSoumise(decider(type: .keyDown, commandEnfonce: true, majEnfonce: false,
+                                optionEnfonce: false, controlEnfonce: false, estSynthetique: false,
+                                code: 13, etat: .ouvert, caractere: "z")) == .key(.z))
+    check("le tap lit le caractère de la disposition et le passe à l'aiguillage",
+          sourceDuTap.contains("keyboardGetUnicodeString") && sourceDuTap.contains("caractere: caractere,"))
+
+    check("panneau AZERTY : Cmd + la touche de « 1 » désigne la première ligne",
+          indexPourCodeDeTouche(18, nombreDeLignes: 5) == 0 && indexPourCodeDeTouche(19, nombreDeLignes: 5) == 1)
+    check("panneau : un rang au-delà de la liste ne désigne rien",
+          indexPourCodeDeTouche(25, nombreDeLignes: 5) == nil)
+    check("panneau : une touche qui n'est pas un chiffre ne désigne rien",
+          indexPourCodeDeTouche(0, nombreDeLignes: 9) == nil && indexPourCodeDeTouche(24, nombreDeLignes: 9) == nil)
+}
+
+// Le relâchement de Cmd manqué : le tap coupé par macOS laissait le geste ouvert.
+section("Geste · le relâchement manqué est rattrapé", attendu: 7)
+do {
+    check("ouvert sans Cmd tenu : relâchement manqué", relachementManque(etat: .ouvert, commandeTenue: false))
+    check("ouvert avec Cmd tenu : rien à rattraper", !relachementManque(etat: .ouvert, commandeTenue: true))
+    check("armé sans Cmd tenu : à rattraper aussi", relachementManque(etat: .arme, commandeTenue: false))
+    check("au repos, rien n'est jamais manqué", !relachementManque(etat: .inactif, commandeTenue: false))
+    check("le chien de garde lit l'état MATÉRIEL de Cmd et la règle pure",
+          sourceDuDelegue.contains("CGEventSource.flagsState(.hidSystemState).contains(.maskCommand)")
+              && sourceDuDelegue.contains("relachementManque(etat: machine.etat, commandeTenue: tenue)"))
+    check("il soumet le relâchement à la machine, comme le ferait le tap",
+          sourceDuDelegue.contains("_ = traiter(.modificateurUp)"))
+    let ouverture = corpsDeMethode(sourceDuDelegue, apres: "case .ouvrir:")
+    check("il démarre à l'ouverture et s'arrête à la fermeture",
+          sourceDuDelegue.contains("surveillerLeRelachementDeCmd()\n            // L'ouverture LOGIQUE")
+              && sourceDuDelegue.contains("arreterLaSurveillanceDuMouvement()\n        arreterLeChienDeGarde()"),
+          "obtenu \(ouverture.prefix(120))")
+}
+
+// La capture des fichiers et des images, mesurée dans la base réelle le 2026-10-17 : une
+// copie de fichier y stockait 4 Mo d'icône TIFF, et les images y étaient en TIFF.
+section("Capture · fichiers et images", attendu: 13)
+do {
+    let faux = FauxPresse()
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    let service = CaptureService(pasteboard: faux, store: store,
+                                 policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
+                                 deviceID: "macA")
+    let icone = Data(repeating: 7, count: 4096) // la même icône Finder pour deux fichiers
+    func fichier(_ chemin: String) -> RawSnapshot {
+        RawSnapshot(types: ["public.file-url", "public.tiff"], text: chemin, rtf: nil, image: icone,
+                    fileURLs: [chemin], sourceBundleID: "com.apple.finder")
+    }
+    faux.poser(fichier("/tmp/a.pdf"))
+    check("une copie de fichier est capturée", service.poll())
+    faux.poser(fichier("/tmp/b.pdf"))
+    check("un second fichier de même icône crée SA propre entrée", service.poll(),
+          "le second fichier écraserait le premier, comme avant le 2026-10-17")
+    check("les deux fichiers sont en base", (try? store.count()) == 2, "obtenu \(String(describing: try? store.count()))")
+    faux.poser(fichier("/tmp/a.pdf"))
+    check("recopier le même fichier reste un doublon", service.poll() == false && (try? store.count()) == 2)
+    let fichiers = (try? store.recent(limit: 5)) ?? []
+    check("un fichier ne stocke aucune charge utile, ni l'icône",
+          fichiers.allSatisfy { (try? store.payload($0.id)) == nil }, "l'icône repartirait en base")
+
+    let png = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+    faux.poser(RawSnapshot(types: ["public.png"], text: nil, rtf: nil, image: png, fileURLs: [],
+                           sourceBundleID: "com.apple.screencaptureui"))
+    _ = service.poll()
+    let image = ((try? store.recent(limit: 1)) ?? []).first
+    check("une image garde sa charge utile, octet pour octet",
+          image?.kind == .image && image.flatMap { try? store.payload($0.id) } == png)
+
+    check("PNG déclaré : il se lit avant le TIFF fabriqué",
+          typesDImageALire(declares: ["public.png", "public.tiff"]).first == "public.png")
+    check("TIFF seul : le TIFF d'abord", typesDImageALire(declares: ["public.tiff"]).first == "public.tiff")
+    check("rien de déclaré : le TIFF reste le repli",
+          typesDImageALire(declares: ["public.utf8-plain-text"]) == ["public.tiff", "public.png"])
+    let lecteur = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Capture/SystemPasteboard.swift"),
+                               encoding: .utf8)) ?? ""
+    check("le presse-papiers système suit cet ordre", lecteur.contains("typesDImageALire(declares: types)")
+          && !lecteur.contains("pb.data(forType: .tiff) ?? pb.data(forType: .png)"))
+
+    check("texte brut d'un fichier : ses chemins en texte",
+          representationAEcrire(kind: .files, texteBrut: true, aPayload: false) == .texte)
+    check("seuls les chemins qui existent encore se recollent en fichiers",
+          cheminsACollerEnFichiers("/a\n\n/b\n/c", existe: { $0 != "/b" }) == ["/a", "/c"])
+    check("le colleur écrit les URL de fichier, et ne sauvegarde plus le presse-papiers pour rien",
+          sourceDuColleur.contains("pb.writeObjects(chemins.map { URL(fileURLWithPath: $0) as NSURL })")
+              && sourceDuColleur.contains("let sauvegarde = !restaurer ? [] :"))
+} catch {
+    echec("Capture · fichiers et images", "\(error)")
+}
+
+// La recherche courte et la connexion partagée entre fils.
+section("Store · recherche courte et accès concurrent", attendu: 5)
+do {
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    var imageOCR = ClipItem.text("", hash: "h-ocr", device: "m", at: 1)
+    imageOCR.searchText = "ab texte reconnu"
+    try store.insert(imageOCR, payload: nil, uti: "public.png")
+    try store.insert(ClipItem.text("remise de 100% sur tout", hash: "h-pct", device: "m", at: 2), payload: nil, uti: "t")
+    try store.insert(ClipItem.text("rien à voir", hash: "h-rien", device: "m", at: 3), payload: nil, uti: "t")
+    check("deux lettres trouvent le texte reconnu d'une image sans titre",
+          try store.search("ab", limit: 10).map(\.id) == [imageOCR.id])
+    let pourcent = try store.search("%", limit: 10)
+    check("« % » seul ne rend que ce qui contient « % »",
+          pourcent.count == 1 && pourcent.first?.title.contains("%") == true, "obtenu \(pourcent.map(\.title))")
+    check("« _ » seul ne rend rien quand rien ne le contient", try store.search("_", limit: 10).isEmpty)
+
+    // Une écriture d'un AUTRE fil pendant une transaction qui échoue : sans le verrou de
+    // `Database`, elle s'exécute DANS la transaction, sur la même connexion, et part avec
+    // son ROLLBACK. Avec le verrou, elle attend la fin de la transaction et survit.
+    let db = try Database(path: makeSandbox() + "/concurrence.sqlite")
+    try db.exec("CREATE TABLE t (v TEXT)")
+    let ouverte = DispatchSemaphore(value: 0)
+    let fini = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        ouverte.wait()
+        try? db.run("INSERT INTO t VALUES ('fond')")
+        fini.signal()
+    }
+    struct Annulation: Error {}
+    try? db.transaction {
+        try db.run("INSERT INTO t VALUES ('annulee')")
+        ouverte.signal()
+        Thread.sleep(forTimeInterval: 0.3)
+        throw Annulation()
+    }
+    fini.wait()
+    let valeurs = try db.query("SELECT v FROM t").compactMap { ligne -> String? in
+        if case let .text(v)? = ligne["v"] { return v }
+        return nil
+    }
+    check("l'écriture d'un autre fil survit au ROLLBACK d'une transaction",
+          valeurs == ["fond"], "obtenu \(valeurs)")
+    check("et la transaction annulée ne laisse rien", !valeurs.contains("annulee"))
+} catch {
+    echec("Store · recherche courte et accès concurrent", "\(error)")
+}
+
+// Le panneau de recherche : focus et collage.
+section("Panneau · focus rendu et collage attendu", attendu: 4)
+do {
+    let panneau = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Overlay/RecherchePanel.swift"),
+                               encoding: .utf8)) ?? ""
+    check("rouvrir le panneau ne relève jamais Copyclipzer comme application d'avant",
+          panneau.contains("if let devant, devant.bundleIdentifier != Bundle.main.bundleIdentifier {\n            appPrecedente = devant"))
+    check("le collage ATTEND que l'application d'avant soit revenue devant",
+          panneau.contains("NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier")
+              && panneau.contains("Date().timeIntervalSince(debut) > 1"))
+    check("Échap rend le focus à l'application d'avant",
+          corpsDeMethode(panneau, apres: "model.onFermer = { [weak self] in").contains("self?.rendreLeFocus()"))
+    check("refermer par l'icône rend le focus aussi",
+          corpsDeMethode(panneau, apres: "func basculer() {").contains("rendreLeFocus()"))
+}
+
+// La remise des modificateurs après notre Cmd-V. Mesuré le 2026-10-17 : une frappe postée
+// avec le drapeau Cmd laisse `NSEvent.modifierFlags` à Cmd dans toutes les applications,
+// indéfiniment. Le chemin importe CoreGraphics, il se mesure donc au TEXTE.
+section("Collage · Copyclipzer ne pose jamais d'appui de modificateur", attendu: 10)
+do {
+    // L'incident du 2026-10-18 : la remise des modificateurs posait un `flagsChanged` lu
+    // 3 ms trop tôt, donc un APPUI sur Cmd, et Entrée arrivait dans OpenCode en Cmd-Entrée.
+    check("le colleur ne fabrique aucun flagsChanged",
+          !sourceDuColleur.contains("type = .flagsChanged") && !sourceDuColleur.contains("virtualKey: 0x37"),
+          "un appui de Cmd posé sans le clavier ferait d'Entrée un Cmd-Entrée")
+    check("le colleur ne relit pas l'état des modificateurs, qui retarde sur le clavier",
+          !sourceDuColleur.contains("CGEventSource.flagsState("))
+    let repose = corpsDeMethode(sourceDuColleur, apres: "static func reposerCollageNatifPuisRejouer(_ frappe: CGEvent?) {")
+    check("la frappe rejouée est suivie de son relâchement, signé",
+          repose.contains("virtualKey: code, keyDown: false)")
+              && repose.contains("relachement?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)"))
+
+    // Le détecteur : les drapeaux sont ceux MESURÉS au moniteur.
+    let cmdReel: UInt64 = 0x0010_0108
+    let appuiPoseParNous: UInt64 = 0x2010_0108 // l'appui fautif de 18:20:13.609
+    check("un vrai Cmd tenu est physique, le Cmd de SuperWhisper ne l'est pas",
+          modificateursPhysiques(cmdReel) == maskCommandBrut && modificateursPhysiques(0x2010_0000) == 0)
+    check("un appui Cmd posé quand le clavier ne tient rien est détecté",
+          appuisSansLeClavier(drapeaux: appuiPoseParNous, etatPhysique: 0x100) == maskCommandBrut)
+    check("le même appui pendant que le clavier tient Cmd n'est pas une panne",
+          appuisSansLeClavier(drapeaux: appuiPoseParNous, etatPhysique: cmdReel) == 0)
+    check("un relâchement posé n'est jamais un appui", appuisSansLeClavier(drapeaux: 0x100, etatPhysique: 0x100) == 0)
+    check("le journal nomme les modificateurs", nomsDesModificateurs(maskCommandBrut | 0x0002_0000) == "Cmd+Maj")
+    check("le tap suit le clavier par ses événements et journalise l'appui jamais relâché",
+          sourceDuTap.contains("surveillerLesModificateurs(event, drapeaux: flags.rawValue)")
+              && sourceDuTap.contains("appuisSansLeClavier(drapeaux: drapeaux, etatPhysique: etatPhysique)")
+              && sourceDuTap.contains("appuisEnAttente[pid] = nil // relâché par son posteur"))
+}
+check("le chien de garde attend deux constats avant d'agir",
+      sourceDuDelegue.contains("guard relachementsVus >= 2 else { return }"),
+      "il couperait la parole au tap sur un relâchement ordinaire")
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
+nettoyerLesSandboxes()
 exit(failures == 0 ? 0 : 1)

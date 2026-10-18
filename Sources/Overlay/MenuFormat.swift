@@ -85,6 +85,27 @@ func indexPourTouche(_ touche: String, nombreDeLignes: Int) -> Int? {
     return index < nombreDeLignes ? index : nil
 }
 
+/// Le chiffre de 1 à 9 que porte une touche de la rangée du haut, par sa POSITION, ou nil.
+///
+/// Partagé par le geste Cmd (`HotKeyKey.traduire`) et par le Cmd+chiffre du panneau de
+/// recherche, qui le lisait au CARACTÈRE et rendait donc « & » sur AZERTY : Cmd-1 n'y
+/// collait rien (mesuré le 2026-10-17 sur la disposition française de ce poste). Il vit
+/// ici parce que ce fichier est le seul que les trois cibles partagent. La plage va
+/// jusqu'à 28 parce que les codes de 7 et 8 valent 26 et 28 ; les codes 24 et 27 tombent
+/// dedans sans être des chiffres, et la table rend alors nil.
+func chiffreDeLaTouche(_ code: Int64) -> Int? {
+    let chiffres: [Int64: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
+    return chiffres[code]
+}
+
+/// L'index visé par un Cmd+chiffre dans le panneau, lu par la POSITION de la touche, pour
+/// que la rangée du haut d'un clavier AZERTY vaille « 1 » à « 9 » comme partout. Même
+/// bornage que `indexPourTouche` : rien au-delà du nombre de lignes.
+func indexPourCodeDeTouche(_ code: Int64, nombreDeLignes: Int) -> Int? {
+    guard let chiffre = chiffreDeLaTouche(code) else { return nil }
+    return indexPourTouche(String(chiffre), nombreDeLignes: nombreDeLignes)
+}
+
 /// Le nom lisible d'un type d'entrée, pour le titre de secours et le pied d'aperçu.
 func nomDuType(_ kind: ClipKind) -> String {
     switch kind {

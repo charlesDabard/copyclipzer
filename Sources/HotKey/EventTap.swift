@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -20,6 +21,26 @@ final class EventTap {
     /// Le raccourci VIVANT, relu à chaque événement pour la même raison que
     /// `etatDuGeste` : changer le réglage doit prendre effet sans relancer le tap.
     private let raccourciGlobal: () -> RaccourciGlobal
+
+    /// La frappe en cours de traitement, posée le temps de l'appel à `onInput` et à lui
+    /// seul. C'est par elle que l'assemblage REJOUE un raccourci Cmd enchaîné sur un
+    /// Cmd-V (`.collerNatifPuisRejouer`) : la frappe est avalée ici, puis reposée après
+    /// le Cmd-V, pour que l'application reçoive les deux dans l'ordre où ils ont été
+    /// tapés. Hors de cet appel, elle vaut nil : rien ne peut rejouer une frappe périmée.
+    private(set) var evenementEnCours: CGEvent?
+
+    /// Compteur des désactivations par le système depuis le lancement, pour le journal :
+    /// une désactivation isolée est normale, une rafale dit que le fil principal rame.
+    private var desactivations = 0
+    /// Refus de création consécutifs, pour espacer leur trace. Voir `start()`.
+    private var echecsDeDemarrage = 0
+
+    /// Les drapeaux bruts du dernier `flagsChanged` du CLAVIER : ce que les doigts tiennent.
+    /// Lu dans l'ordre des événements, jamais dans `CGEventSource.flagsState`, qui retarde
+    /// sur le relâchement (mesuré : 3 ms après, il disait encore Cmd tenu).
+    private var etatPhysique: UInt64 = 0
+    /// Les appuis de modificateur posés par un processus sans le clavier, pas encore relâchés.
+    private var appuisEnAttente: [Int64: UInt64] = [:]
 
     init(onInput: @escaping (HotKeyInput) -> Bool, onCopyShortcut: @escaping () -> Void,
          onRaccourciGlobal: (() -> Void)?,
@@ -57,14 +78,31 @@ final class EventTap {
                                 options: .defaultTap, eventsOfInterest: CGEventMask(masque),
                                 callback: callback,
                                 userInfo: Unmanaged.passUnretained(self).toOpaque())
-        guard let tap else { return false }
+        guard let tap else {
+            // LE cas « le geste Cmd ne marche pas du tout ». Il passait sans un mot : le
+            // retour était jeté par `_ = tap.start()`. L'accessibilité peut être cochée
+            // dans les Réglages et pourtant refusée ici, quand l'exigence de signature ne
+            // correspond plus au binaire (voir docs/CERTIFICAT-LOCAL.md).
+            // Tracé au premier refus puis une fois sur douze : l'assemblage retente toutes
+            // les cinq secondes, une ligne par minute suffit à dire que ça dure.
+            echecsDeDemarrage += 1
+            if echecsDeDemarrage % 12 == 1 {
+                journal.erreur("tap", "création du tap clavier REFUSÉE par le système "
+                    + "(accessibilité accordée = \(AXIsProcessTrusted() ? "oui" : "non"), "
+                    + "essai \(echecsDeDemarrage)) : le geste Cmd, ⌥⌘V et la capture "
+                    + "instantanée de Cmd-C sont inactifs")
+            }
+            return false
+        }
         source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         // `GetMain` et non `GetCurrent` : un `start()` appelé depuis une queue de
         // fond ajouterait la source à une boucle qui ne tourne jamais. Le tap est
         // alors créé, activé, `start()` rend `true`, aucun événement n'arrive et
         // aucune erreur n'est signalée nulle part. Échec strictement silencieux.
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        etatPhysique = CGEventSource.flagsState(.hidSystemState).rawValue
         CGEvent.tapEnable(tap: tap, enable: true)
+        journal.info("tap", "tap clavier démarré")
         return true
     }
 
@@ -115,12 +153,34 @@ final class EventTap {
             if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            NSLog("Copyclipzer : tap réactivé après désactivation par le système")
+            desactivations += 1
+            // Les frappes de la fenêtre de coupure sont passées sans nous : si le
+            // relâchement de Cmd y est tombé, le chien de garde de l'assemblage le
+            // rattrapera (voir `relachementManque`). Le journal dit pourquoi le geste a pu
+            // sembler bloqué juste avant.
+            let cause = type == .tapDisabledByTimeout
+                ? "délai dépassé (le fil principal a tardé à répondre)"
+                : "intervention de l'utilisateur ou saisie sécurisée"
+            journal.alerte("tap", "tap désactivé par le système, \(cause), réactivé "
+                + "(\(desactivations) depuis le lancement)")
             return Unmanaged.passUnretained(event)
         }
 
         let flags = event.flags
         let code = event.getIntegerValueField(.keyboardEventKeycode)
+
+        // Le suivi des modificateurs, pour le journal seulement : il ne change rien à
+        // l'événement. Voir `appuisSansLeClavier`.
+        if type == .flagsChanged {
+            surveillerLesModificateurs(event, drapeaux: flags.rawValue)
+        }
+        // Le caractère que la disposition ACTIVE produit pour cette touche, Cmd ignoré :
+        // « z » pour la touche marquée Z d'un clavier AZERTY, dont le code est celui du W
+        // en QWERTY. Lu seulement sur une frappe, `flagsChanged` n'en porte pas. La
+        // traduction elle-même reste dans `decider`, du côté pur.
+        let caractere = type == .keyDown ? EventTap.caractere(de: event) : nil
+        let estRepetition = type == .keyDown
+            && event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
         // Le tri « cet événement n'est pas de la main de l'utilisateur » vit dans
         // `Paster.estSynthetique`, qui lit les champs du `CGEvent` et appelle le
@@ -154,8 +214,22 @@ final class EventTap {
                                  controle: flags.contains(.maskControl),
                                  raccourci: raccourciGlobal())
         {
+            journal.info("raccourci", "raccourci global d'ouverture du panneau")
             onRaccourciGlobal?()
             return nil
+        }
+
+        let synthetique = Paster.estSynthetique(event, type: typePur)
+        // Le Cmd-V posé par une AUTRE application (SuperWhisper, un lanceur, un outil de
+        // dictée) : relayé brut, jamais soumis au geste. Tracé parce que c'est la cause de
+        // l'incident du 2026-09-30, et que sans trace un collage qui « ne vient pas de
+        // l'utilisateur » ne se distingue pas d'un bug de Copyclipzer. Le nôtre porte la
+        // signature et n'est pas tracé ici, `Paster` le trace à la pose.
+        if synthetique, typePur == .keyDown, code == 9, flags.contains(.maskCommand),
+           event.getIntegerValueField(.eventSourceUserData) != signatureDuCollage
+        {
+            journal.info("tap", "Cmd-V synthétique d'un autre processus relayé tel quel "
+                + "(pid \(event.getIntegerValueField(.eventSourceUnixProcessID)))")
         }
 
         let decision = decider(type: typePur,
@@ -163,9 +237,11 @@ final class EventTap {
                                majEnfonce: flags.contains(.maskShift),
                                optionEnfonce: flags.contains(.maskAlternate),
                                controlEnfonce: flags.contains(.maskControl),
-                               estSynthetique: Paster.estSynthetique(event, type: typePur),
+                               estSynthetique: synthetique,
                                code: code,
-                               etat: etatDuGeste())
+                               etat: etatDuGeste(),
+                               caractere: caractere,
+                               estRepetition: estRepetition)
 
         switch decision {
         case .relayer:
@@ -180,8 +256,52 @@ final class EventTap {
             return Unmanaged.passUnretained(event)
 
         case let .soumettre(entree):
+            evenementEnCours = event
+            defer { evenementEnCours = nil }
             return onInput(entree) ? nil : Unmanaged.passUnretained(event)
         }
+    }
+
+    /// Retient ce que le clavier tient, et journalise tout appui de modificateur qu'un
+    /// processus pose sans lui et ne relâche pas dans la demi-seconde. Ne modifie jamais
+    /// l'événement. Un outil qui appuie puis relâche aussitôt (une macro) est normal et ne
+    /// laisse rien ; l'appui jamais relâché est la panne du 2026-10-18.
+    private func surveillerLesModificateurs(_ event: CGEvent, drapeaux: UInt64) {
+        let pid = event.getIntegerValueField(.eventSourceUnixProcessID)
+        let notre = event.getIntegerValueField(.eventSourceUserData) == signatureDuCollage
+        guard pid != 0 || notre else {
+            // Le clavier a parlé : l'état est de nouveau le sien, plus rien n'est en attente.
+            etatPhysique = drapeaux
+            appuisEnAttente.removeAll()
+            return
+        }
+        let appuis = appuisSansLeClavier(drapeaux: drapeaux, etatPhysique: etatPhysique)
+        guard appuis != 0 else {
+            appuisEnAttente[pid] = nil // relâché par son posteur
+            return
+        }
+        appuisEnAttente[pid] = appuis
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, let restants = appuisEnAttente[pid], restants != 0 else { return }
+            appuisEnAttente[pid] = nil
+            journal.alerte("clavier", "\(notre ? "COPYCLIPZER" : "le processus \(pid)") a laissé un "
+                + "appui \(nomsDesModificateurs(restants)) que le clavier ne tient pas : les "
+                + "applications peuvent croire la touche enfoncée (Entrée lue comme Cmd-Entrée) "
+                + "jusqu'au prochain appui réel sur ce modificateur")
+        }
+    }
+
+    /// Le texte que la disposition active produit pour cette frappe, sans les
+    /// modificateurs, ou nil. `keyboardGetUnicodeString` et non `NSEvent` : ce fichier
+    /// n'importe pas AppKit. Mesuré le 2026-10-17 sur la disposition française avec Cmd
+    /// enfoncé : code 6 rend « w », code 13 rend « z », code 18 rend « & ».
+    private static func caractere(de event: CGEvent) -> String? {
+        var longueur = 0
+        var tampon = [UniChar](repeating: 0, count: 4)
+        event.keyboardGetUnicodeString(maxStringLength: tampon.count, actualStringLength: &longueur,
+                                       unicodeString: &tampon)
+        guard longueur > 0 else { return nil }
+        return String(utf16CodeUnits: tampon, count: min(longueur, tampon.count))
     }
 
     /// La seule traduction que le tap garde pour lui. Les types de désactivation

@@ -80,6 +80,32 @@ final class Paster {
         DispatchQueue.main.async { poserCmdV() }
     }
 
+    /// Repose le Cmd-V d'origine PUIS la frappe qui l'a suivi, dans le même tour de boucle
+    /// et dans cet ordre. C'est la sortie `.collerNatifPuisRejouer` : Cmd-V puis Cmd-Entrée
+    /// sans relâcher Cmd doit coller PUIS envoyer, jamais l'inverse.
+    ///
+    /// L'ordre tient parce que les deux poses partent du même bloc : la frappe d'origine a
+    /// été avalée par le tap, et c'est sa COPIE qui repart, signée comme le Cmd-V pour que
+    /// le tap la relaie sans la soumettre une seconde fois à la machine. Comme
+    /// `reposerCollageNatif`, ce chemin ne lit ni n'écrit le presse-papiers.
+    static func reposerCollageNatifPuisRejouer(_ frappe: CGEvent?) {
+        DispatchQueue.main.async {
+            poserCmdV()
+            guard let frappe else { return }
+            frappe.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)
+            frappe.post(tap: .cghidEventTap)
+            // Son relâchement aussi : le vrai est déjà passé (le tap ne voit pas les
+            // relâchements), et une application qui suit l'état des touches garderait
+            // sinon la touche rejouée enfoncée.
+            let code = CGKeyCode(truncatingIfNeeded: frappe.getIntegerValueField(.keyboardEventKeycode))
+            let relachement = CGEvent(keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
+                                      virtualKey: code, keyDown: false)
+            relachement?.flags = frappe.flags
+            relachement?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)
+            relachement?.post(tap: .cghidEventTap)
+        }
+    }
+
     /// Les deux moitiés du Cmd-V synthétique, partagées par le collage choisi et par le
     /// relais natif. Les drapeaux imitent un vrai clavier, ils n'identifient personne :
     /// c'est `eventSourceUserData` qui porte la signature, et les DEUX moitiés la
@@ -99,6 +125,19 @@ final class Paster {
         haut?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)
         bas?.post(tap: .cghidEventTap)
         haut?.post(tap: .cghidEventTap)
+        // AUCUN `flagsChanged` après, et c'est une correction, pas un oubli. Une « remise des
+        // modificateurs » a vécu ici du 2026-10-17 au 2026-10-18 : elle lisait l'état du
+        // clavier pour reposer un `flagsChanged` du même état. Mesuré au moniteur le
+        // 2026-10-18 à 18:20:13 : lu 3 ms après le relâchement de Cmd, l'état disait encore
+        // Cmd tenu, et la remise a posé un APPUI sur Cmd que personne ne faisait. Le terminal
+        // a cru Cmd enfoncé, et Entrée est arrivée dans OpenCode en Cmd-Entrée : le message
+        // ne partait plus, un collage sur cinq.
+        //
+        // Et elle ne servait à rien. Le même moniteur montre qu'une frappe du VRAI clavier
+        // porte toujours ses vrais modificateurs (Entrée arrive en `0x100`, sans Cmd, 266 ms
+        // après un état faussé), et qu'elle remet l'état d'aplomb en passant. Le Cmd que
+        // notre V laisse dans l'état ne dure que jusqu'à la prochaine frappe ou au prochain
+        // mouvement de souris. Un test interdit tout `flagsChanged` dans ce fichier.
     }
 
     private let store: Store
@@ -138,12 +177,40 @@ final class Paster {
     private func ecrireDansLePressePapiers(_ item: ClipItem, texteBrut: Bool) -> Int {
         let pb = NSPasteboard.general
         pb.clearContents()
-        let payload = try? store.payload(item.id)
-        switch representationAEcrire(kind: item.kind, texteBrut: texteBrut,
-                                     aPayload: payload != nil)
-        {
+        // Les fichiers n'ont pas de charge utile, leurs chemins sont dans `searchText` :
+        // inutile d'aller lire la base pour eux.
+        let payload = item.kind == .files
+            ? nil
+            : journal.essayer("collage", "lecture de la charge utile") { try store.payload(item.id) } ?? nil
+        let representation = representationAEcrire(kind: item.kind, texteBrut: texteBrut,
+                                                   aPayload: payload != nil)
+        if payload == nil, item.kind == .rtf || item.kind == .image, !texteBrut {
+            journal.alerte("collage", "entrée \(nomDuType(item.kind)) sans charge utile en base, "
+                + "repli sur le texte")
+        }
+        journal.info("collage", "écriture \(representation) d'une entrée \(nomDuType(item.kind)) "
+            + "(\(item.byteSize) octets) vers \(Paster.appDeDevant())")
+        switch representation {
         case .texte:
             pb.setString(item.searchText, forType: .string)
+        case .fichiers:
+            let chemins = cheminsACollerEnFichiers(item.searchText) {
+                FileManager.default.fileExists(atPath: $0)
+            }
+            if chemins.isEmpty {
+                journal.alerte("collage", "aucun des fichiers copiés n'existe encore, "
+                    + "repli sur les chemins en texte")
+            } else {
+                pb.writeObjects(chemins.map { URL(fileURLWithPath: $0) as NSURL })
+            }
+            // Les chemins en texte EN PLUS, pour les applications qui ne lisent pas les
+            // URL de fichier (un terminal, un champ de texte simple). Ajoutés au premier
+            // élément écrit, comme le Finder le fait lui-même.
+            if let premier = pb.pasteboardItems?.first {
+                premier.setString(item.searchText, forType: .string)
+            } else {
+                pb.setString(item.searchText, forType: .string)
+            }
         case .rtf:
             if let payload {
                 pb.setData(payload, forType: .rtf)
@@ -168,6 +235,12 @@ final class Paster {
         return pb.changeCount
     }
 
+    /// L'application qui recevra le Cmd-V, pour le journal : son identifiant de bundle,
+    /// jamais rien de ce qu'elle affiche.
+    static func appDeDevant() -> String {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "aucune application"
+    }
+
     private func collerMaintenant(_ item: ClipItem, texteBrut: Bool, restaurer: Bool) {
         let pb = NSPasteboard.general
 
@@ -180,7 +253,13 @@ final class Paster {
         // (`restaurationParDefaut`), donc ce trou est documenté et non rebouché : le
         // reboucher demanderait de parcourir `pb.pasteboardItems` et de recréer
         // chaque item, pour un chemin que personne n'emprunte par défaut.
-        let sauvegarde = pb.types?.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
+        //
+        // Et seulement quand la restauration est DEMANDÉE. Correction du 2026-10-17 : la
+        // sauvegarde lisait chaque type du presse-papiers à chaque collage, restauration
+        // désactivée ou non, donc forçait l'application source à fabriquer tous ses types
+        // promis (une plage Excel, une image de 20 Mo en TIFF) pour rien, sur le fil
+        // principal, juste avant de poser le Cmd-V.
+        let sauvegarde = !restaurer ? [] : pb.types?.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
             pb.data(forType: type).map { (type, $0) }
         } ?? []
 

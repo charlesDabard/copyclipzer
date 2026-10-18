@@ -81,6 +81,12 @@
 /* Menu bar icon menu: open at startup. */
 "menu.ouvrir_demarrage" = "Open at startup";
 
+/* Status icon menu: opens the log file in Console. */
+"menu.afficher_journal" = "Show log";
+
+/* Status icon menu: checkbox for the detailed log (traces every Cmd gesture shortcut). */
+"menu.journal_detaille" = "Detailed gesture log";
+
 /* Menu bar icon menu: quit the app. */
 "menu.quitter" = "Quit Copyclipzer";
 

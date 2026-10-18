@@ -18,12 +18,15 @@ final class PanneauClavier: NSPanel {
     /// NON par le délégué du champ : un Cmd+chiffre est un équivalent clavier, donc la
     /// fenêtre le reçoit AVANT qu'il n'atteigne `doCommandBy`. L'y attendre serait
     /// attendre un événement qui n'arrive jamais. Rend vrai quand le rang a été collé.
-    var surChiffreCmd: ((String) -> Bool)?
+    ///
+    /// Reçoit le CODE de la touche et non son caractère. Correction du 2026-10-17 :
+    /// `charactersIgnoringModifiers` rend « & », « é », « " » sur la rangée du haut d'un
+    /// clavier AZERTY, donc Cmd-1 à Cmd-9 ne collaient rien sur la disposition française.
+    var surChiffreCmd: ((Int64) -> Bool)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
-           let touche = event.charactersIgnoringModifiers,
-           surChiffreCmd?(touche) == true
+           surChiffreCmd?(Int64(event.keyCode)) == true
         {
             return true
         }
@@ -80,9 +83,15 @@ final class RecherchePanel: NSObject {
         panel.isReleasedWhenClosed = false
         panel.contentView = hote
 
-        model.onFermer = { [weak self] in self?.masquer() }
-        panel.surChiffreCmd = { [weak self] touche in
-            self?.collerLeRang(touche) ?? false
+        // Échap rend le focus à l'application d'avant, en plus de fermer : voir
+        // `rendreLeFocus`.
+        model.onFermer = { [weak self] in
+            journal.info("panneau", "fermé par Échap")
+            self?.masquer()
+            self?.rendreLeFocus()
+        }
+        panel.surChiffreCmd = { [weak self] code in
+            self?.collerLeRang(code) ?? false
         }
     }
 
@@ -98,15 +107,30 @@ final class RecherchePanel: NSObject {
         panel.frame
     }
 
+    /// Le clic sur l'icône : ferme en rendant le focus, ou ouvre.
     func basculer() {
-        estVisible ? masquer() : afficher()
+        if estVisible {
+            masquer()
+            rendreLeFocus()
+        } else {
+            afficher()
+        }
     }
 
     /// Ouvre le panneau, repart d'une recherche vide, prend le focus. L'application de
     /// devant est relevée AVANT toute activation, pour pouvoir y rendre le focus au
     /// collage : un clic sur l'icône de barre ne la fait pas encore passer au second plan.
     func afficher() {
-        appPrecedente = NSWorkspace.shared.frontmostApplication
+        // Jamais NOUS-MÊMES. Correction du 2026-10-17 : rouvrir le panneau par ⌥⌘V alors
+        // qu'il était déjà ouvert relevait Copyclipzer comme « application d'avant »
+        // (c'est elle qui est active à ce moment-là), et le collage suivant partait dans
+        // le vide au lieu du document de l'utilisateur.
+        let devant = NSWorkspace.shared.frontmostApplication
+        if let devant, devant.bundleIdentifier != Bundle.main.bundleIdentifier {
+            appPrecedente = devant
+        }
+        journal.info("panneau", "ouvert, application d'avant : "
+            + "\(appPrecedente?.bundleIdentifier ?? "aucune")")
         model.requete = ""
         model.onRequete?("")
         accorderLaTaille()
@@ -133,17 +157,60 @@ final class RecherchePanel: NSObject {
 
     /// Referme, rend le focus à l'application d'avant, PUIS colle. L'ordre compte : le
     /// Cmd-V synthétisé par `Paster` va à l'application de devant, elle doit donc être
-    /// redevenue active avant. Le court délai laisse l'activation aboutir.
+    /// redevenue active avant.
+    ///
+    /// On ATTEND qu'elle le soit, au lieu de parier sur un délai. Correction du
+    /// 2026-10-17 : un délai fixe de 120 ms suffisait à un éditeur léger, pas à une
+    /// application lourde ni à une application plein écran dont l'espace doit glisser, et
+    /// le Cmd-V partait alors vers une application qui n'était pas encore devant : rien ne
+    /// se collait, sans aucun message. Sondage toutes les 20 ms, une seconde au plus, puis
+    /// un court répit pour que la fenêtre clé soit posée.
     func collerDans(_ geste: @escaping () -> Void) {
         masquer()
-        if let app = appPrecedente, app.bundleIdentifier != Bundle.main.bundleIdentifier {
-            if #available(macOS 14.0, *) {
-                app.activate()
+        guard let app = appPrecedente, app.bundleIdentifier != Bundle.main.bundleIdentifier,
+              !app.isTerminated
+        else {
+            journal.alerte("collage", "aucune application d'avant connue, le collage part "
+                + "vers \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "aucune application")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: geste)
+            return
+        }
+        activer(app)
+        let debut = Date()
+        func attendre() {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+                journal.info("collage", "\(app.bundleIdentifier ?? "?") de nouveau devant après "
+                    + "\(millisecondesDepuis(debut)) ms")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: geste)
+            } else if Date().timeIntervalSince(debut) > 1 {
+                journal.alerte("collage", "\(app.bundleIdentifier ?? "?") toujours pas devant après "
+                    + "1 s, collage tenté quand même vers "
+                    + "\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "aucune application")")
+                geste()
             } else {
-                app.activate(options: [.activateIgnoringOtherApps])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: attendre)
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: geste)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: attendre)
+    }
+
+    /// Rend le focus à l'application d'avant, sur une fermeture SANS collage (Échap, clic
+    /// sur l'icône). Correction du 2026-10-17 : le panneau s'active pour prendre le
+    /// clavier, et le fermer laissait Copyclipzer active sans aucune fenêtre visible, si
+    /// bien que la frappe suivante de l'utilisateur partait dans le vide. Le clic
+    /// extérieur ne passe pas ici : il active déjà l'application cliquée.
+    private func rendreLeFocus() {
+        guard NSApp.isActive, let app = appPrecedente,
+              app.bundleIdentifier != Bundle.main.bundleIdentifier, !app.isTerminated else { return }
+        activer(app)
+    }
+
+    private func activer(_ app: NSRunningApplication) {
+        if #available(macOS 14.0, *) {
+            app.activate()
+        } else {
+            app.activate(options: [.activateIgnoringOtherApps])
+        }
     }
 
     /// Demande confirmation avant un geste destructeur (vider l'historique). Modal. Les
@@ -187,12 +254,12 @@ final class RecherchePanel: NSObject {
     }
 
     /// Choisit la Nième ligne de la liste pour un Cmd+chiffre et la colle, exactement
-    /// comme un clic : l'index vient de la règle pure `indexPourTouche`, puis le même
+    /// comme un clic : l'index vient de la règle pure `indexPourCodeDeTouche`, puis le même
     /// `onValider` que le reste du panneau est appelé en mode normal. Rend faux quand
     /// le chiffre ne désigne aucune ligne : l'événement n'est alors pas consommé et
     /// retombe sur le comportement normal du système, au lieu d'être avalé en silence.
-    private func collerLeRang(_ touche: String) -> Bool {
-        guard let index = indexPourTouche(touche, nombreDeLignes: model.lignes.count),
+    private func collerLeRang(_ code: Int64) -> Bool {
+        guard let index = indexPourCodeDeTouche(code, nombreDeLignes: model.lignes.count),
               model.lignes.indices.contains(index) else { return false }
         model.index = index
         model.onValider?(model.lignes[index].id, false)

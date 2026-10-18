@@ -75,10 +75,20 @@ final class Store {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return try recent(limit: limit) }
 
+        // Le repli porte sur les MÊMES colonnes que l'index plein texte, `title` et
+        // `searchText`, et échappe les jokers de LIKE. Correction du 2026-10-17 : il ne
+        // lisait que `title`, donc deux lettres ne trouvaient jamais le texte reconnu
+        // dans une image (qui n'a pas de titre), et « % » ou « _ » tapés seuls rendaient
+        // tout l'historique au lieu de ce qui les contient.
         if q.count < 3 {
+            let motif = "%" + q.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "%", with: "\\%")
+                .replacingOccurrences(of: "_", with: "\\_") + "%"
             return try db.query("""
-            SELECT * FROM item WHERE title LIKE ? ORDER BY createdAt DESC LIMIT ?
-            """, [.text("%\(q)%"), .int(Int64(limit))]).compactMap(Store.decode)
+            SELECT * FROM item
+            WHERE title LIKE ? ESCAPE '\\' OR searchText LIKE ? ESCAPE '\\'
+            ORDER BY createdAt DESC LIMIT ?
+            """, [.text(motif), .text(motif), .int(Int64(limit))]).compactMap(Store.decode)
         }
 
         // Les guillemets neutralisent les opérateurs FTS5 saisis par accident.
