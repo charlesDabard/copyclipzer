@@ -116,8 +116,6 @@ final class Paster {
     /// serait mesurée.
     private static func poserCmdV() {
         let source = CGEventSource(stateID: .combinedSessionState)
-        // L'état RÉEL des modificateurs, lu avant que notre synthèse ne le colore.
-        let reel = CGEventSource.flagsState(.combinedSessionState)
         let bas = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
         let haut = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
         let drapeaux = CGEventFlags(rawValue: drapeauxDuCollage)
@@ -127,21 +125,19 @@ final class Paster {
         haut?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)
         bas?.post(tap: .cghidEventTap)
         haut?.post(tap: .cghidEventTap)
-
-        // Remise des modificateurs à leur état réel, et ce n'est pas de l'hygiène de
-        // principe. Mesuré le 2026-10-17 : une frappe postée avec le drapeau Cmd laisse le
-        // système croire que Cmd est TENU, indéfiniment (encore vrai trois secondes plus
-        // tard, et d'un processus à l'autre), jusqu'au prochain appui réel sur un
-        // modificateur. Pendant ce temps `NSEvent.modifierFlags` rend Cmd dans TOUTES les
-        // applications, si bien qu'un simple clic après un collage pouvait se lire comme
-        // un Cmd-clic. Un `flagsChanged` portant l'état d'avant efface la coloration
-        // (mesuré aussi). Signé, pour que le tap le relaie sans en parler à la machine.
-        let remise = CGEvent(keyboardEventSource: source, virtualKey: 0x37,
-                             keyDown: reel.contains(.maskCommand))
-        remise?.type = .flagsChanged
-        remise?.flags = reel
-        remise?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)
-        remise?.post(tap: .cghidEventTap)
+        // AUCUN `flagsChanged` après, et c'est une correction, pas un oubli. Une « remise des
+        // modificateurs » a vécu ici du 2026-10-17 au 2026-10-18 : elle lisait l'état du
+        // clavier pour reposer un `flagsChanged` du même état. Mesuré au moniteur le
+        // 2026-10-18 à 18:20:13 : lu 3 ms après le relâchement de Cmd, l'état disait encore
+        // Cmd tenu, et la remise a posé un APPUI sur Cmd que personne ne faisait. Le terminal
+        // a cru Cmd enfoncé, et Entrée est arrivée dans OpenCode en Cmd-Entrée : le message
+        // ne partait plus, un collage sur cinq.
+        //
+        // Et elle ne servait à rien. Le même moniteur montre qu'une frappe du VRAI clavier
+        // porte toujours ses vrais modificateurs (Entrée arrive en `0x100`, sans Cmd, 266 ms
+        // après un état faussé), et qu'elle remet l'état d'aplomb en passant. Le Cmd que
+        // notre V laisse dans l'état ne dure que jusqu'à la prochaine frappe ou au prochain
+        // mouvement de souris. Un test interdit tout `flagsChanged` dans ce fichier.
     }
 
     private let store: Store

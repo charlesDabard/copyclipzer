@@ -35,6 +35,13 @@ final class EventTap {
     /// Refus de création consécutifs, pour espacer leur trace. Voir `start()`.
     private var echecsDeDemarrage = 0
 
+    /// Les drapeaux bruts du dernier `flagsChanged` du CLAVIER : ce que les doigts tiennent.
+    /// Lu dans l'ordre des événements, jamais dans `CGEventSource.flagsState`, qui retarde
+    /// sur le relâchement (mesuré : 3 ms après, il disait encore Cmd tenu).
+    private var etatPhysique: UInt64 = 0
+    /// Les appuis de modificateur posés par un processus sans le clavier, pas encore relâchés.
+    private var appuisEnAttente: [Int64: UInt64] = [:]
+
     init(onInput: @escaping (HotKeyInput) -> Bool, onCopyShortcut: @escaping () -> Void,
          onRaccourciGlobal: (() -> Void)?,
          etatDuGeste: @escaping () -> HotKeyState,
@@ -93,6 +100,7 @@ final class EventTap {
         // alors créé, activé, `start()` rend `true`, aucun événement n'arrive et
         // aucune erreur n'est signalée nulle part. Échec strictement silencieux.
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        etatPhysique = CGEventSource.flagsState(.hidSystemState).rawValue
         CGEvent.tapEnable(tap: tap, enable: true)
         journal.info("tap", "tap clavier démarré")
         return true
@@ -160,6 +168,12 @@ final class EventTap {
 
         let flags = event.flags
         let code = event.getIntegerValueField(.keyboardEventKeycode)
+
+        // Le suivi des modificateurs, pour le journal seulement : il ne change rien à
+        // l'événement. Voir `appuisSansLeClavier`.
+        if type == .flagsChanged {
+            surveillerLesModificateurs(event, drapeaux: flags.rawValue)
+        }
         // Le caractère que la disposition ACTIVE produit pour cette touche, Cmd ignoré :
         // « z » pour la touche marquée Z d'un clavier AZERTY, dont le code est celui du W
         // en QWERTY. Lu seulement sur une frappe, `flagsChanged` n'en porte pas. La
@@ -245,6 +259,35 @@ final class EventTap {
             evenementEnCours = event
             defer { evenementEnCours = nil }
             return onInput(entree) ? nil : Unmanaged.passUnretained(event)
+        }
+    }
+
+    /// Retient ce que le clavier tient, et journalise tout appui de modificateur qu'un
+    /// processus pose sans lui et ne relâche pas dans la demi-seconde. Ne modifie jamais
+    /// l'événement. Un outil qui appuie puis relâche aussitôt (une macro) est normal et ne
+    /// laisse rien ; l'appui jamais relâché est la panne du 2026-10-18.
+    private func surveillerLesModificateurs(_ event: CGEvent, drapeaux: UInt64) {
+        let pid = event.getIntegerValueField(.eventSourceUnixProcessID)
+        let notre = event.getIntegerValueField(.eventSourceUserData) == signatureDuCollage
+        guard pid != 0 || notre else {
+            // Le clavier a parlé : l'état est de nouveau le sien, plus rien n'est en attente.
+            etatPhysique = drapeaux
+            appuisEnAttente.removeAll()
+            return
+        }
+        let appuis = appuisSansLeClavier(drapeaux: drapeaux, etatPhysique: etatPhysique)
+        guard appuis != 0 else {
+            appuisEnAttente[pid] = nil // relâché par son posteur
+            return
+        }
+        appuisEnAttente[pid] = appuis
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, let restants = appuisEnAttente[pid], restants != 0 else { return }
+            appuisEnAttente[pid] = nil
+            journal.alerte("clavier", "\(notre ? "COPYCLIPZER" : "le processus \(pid)") a laissé un "
+                + "appui \(nomsDesModificateurs(restants)) que le clavier ne tient pas : les "
+                + "applications peuvent croire la touche enfoncée (Entrée lue comme Cmd-Entrée) "
+                + "jusqu'au prochain appui réel sur ce modificateur")
         }
     }
 

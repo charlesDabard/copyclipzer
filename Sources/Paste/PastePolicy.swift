@@ -172,3 +172,45 @@ let restaurationParDefaut = false
 func doitRestaurer(sauvegardeVide: Bool, changeCountApresEcriture: Int, changeCountActuel: Int) -> Bool {
     !sauvegardeVide && changeCountActuel == changeCountApresEcriture
 }
+
+// MARK: - Appuis de modificateur que le clavier ne fait pas
+
+/// Les quatre modificateurs : masque indépendant du périphérique, et bits DÉPENDANTS du
+/// périphérique (gauche et droite, `IOLLEvent.h`), que le système pose sur tout événement
+/// d'un vrai clavier qui tient la touche. Mesuré au moniteur le 2026-10-18 : Cmd tenu vaut
+/// `0x100108`, Maj `0x20104`, Option `0x80120`.
+let modificateursSurveilles: [(nom: String, masque: UInt64, bitsPhysiques: UInt64)] = [
+    ("Cmd", maskCommandBrut, bitCommandeGauche | bitCommandeDroite),
+    ("Maj", 0x0002_0000, 0x02 | 0x04),
+    ("Opt", 0x0008_0000, 0x20 | 0x40),
+    ("Ctrl", 0x0004_0000, 0x01 | 0x2000),
+]
+
+/// Les modificateurs que ces drapeaux disent tenus par le CLAVIER : masque posé ET au moins
+/// un bit physique. Le Cmd que pose SuperWhisper (`0x20100000`) n'en fait pas partie.
+func modificateursPhysiques(_ drapeaux: UInt64) -> UInt64 {
+    modificateursSurveilles.reduce(0) { acc, m in
+        drapeaux & m.masque != 0 && drapeaux & m.bitsPhysiques != 0 ? acc | m.masque : acc
+    }
+}
+
+/// Les modificateurs qu'un `flagsChanged` SYNTHÉTIQUE déclare enfoncés alors que le clavier ne
+/// les tient pas, d'après le dernier `flagsChanged` du clavier (`etatPhysique`).
+///
+/// C'est la signature exacte de la panne du 2026-10-18 : notre propre « remise des
+/// modificateurs » a posé un appui sur Cmd 3 ms après le relâchement réel, le terminal a cru
+/// Cmd enfoncé, et Entrée est arrivée dans OpenCode en Cmd-Entrée. Le tap ne corrige rien,
+/// il JOURNALISE : un appui posé par un autre outil (une macro BetterTouchTool) peut être
+/// voulu, et le neutraliser casserait cet outil. Rien ne doit plus jamais l'émettre de
+/// notre côté, et si quelqu'un d'autre le fait, le journal le dit.
+func appuisSansLeClavier(drapeaux: UInt64, etatPhysique: UInt64) -> UInt64 {
+    modificateursSurveilles.reduce(0) { acc, m in
+        drapeaux & m.masque != 0 && modificateursPhysiques(etatPhysique) & m.masque == 0 ? acc | m.masque : acc
+    }
+}
+
+/// « Cmd », « Cmd+Maj », pour le journal.
+func nomsDesModificateurs(_ masques: UInt64) -> String {
+    let noms = modificateursSurveilles.filter { masques & $0.masque != 0 }.map(\.nom)
+    return noms.isEmpty ? "aucun" : noms.joined(separator: "+")
+}

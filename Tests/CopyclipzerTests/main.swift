@@ -3845,24 +3845,35 @@ do {
 // La remise des modificateurs après notre Cmd-V. Mesuré le 2026-10-17 : une frappe postée
 // avec le drapeau Cmd laisse `NSEvent.modifierFlags` à Cmd dans toutes les applications,
 // indéfiniment. Le chemin importe CoreGraphics, il se mesure donc au TEXTE.
-section("Collage · les modificateurs sont remis à leur état réel", attendu: 5)
+section("Collage · Copyclipzer ne pose jamais d'appui de modificateur", attendu: 10)
 do {
-    let pose = corpsDeMethode(sourceDuColleur, apres: "private static func poserCmdV() {")
-    let lecture = pose.range(of: "let reel = CGEventSource.flagsState(.combinedSessionState)")?.lowerBound
-    let premierePose = pose.range(of: "bas?.post(tap: .cghidEventTap)")?.lowerBound
-    check("l'état réel est lu AVANT que notre synthèse ne le colore",
-          lecture != nil && premierePose != nil && lecture! < premierePose!,
-          "lu après la pose, l'état « réel » serait déjà faux")
-    check("un flagsChanged porte l'état réel après le Cmd-V",
-          pose.contains("remise?.type = .flagsChanged") && pose.contains("remise?.flags = reel")
-              && pose.contains("remise?.post(tap: .cghidEventTap)"),
-          "Cmd resterait tenu pour tout le système après chaque collage")
-    check("la remise est signée, le tap la relaie sans la soumettre au geste",
-          pose.contains("remise?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)"))
+    // L'incident du 2026-10-18 : la remise des modificateurs posait un `flagsChanged` lu
+    // 3 ms trop tôt, donc un APPUI sur Cmd, et Entrée arrivait dans OpenCode en Cmd-Entrée.
+    check("le colleur ne fabrique aucun flagsChanged",
+          !sourceDuColleur.contains("type = .flagsChanged") && !sourceDuColleur.contains("virtualKey: 0x37"),
+          "un appui de Cmd posé sans le clavier ferait d'Entrée un Cmd-Entrée")
+    check("le colleur ne relit pas l'état des modificateurs, qui retarde sur le clavier",
+          !sourceDuColleur.contains("CGEventSource.flagsState("))
     let repose = corpsDeMethode(sourceDuColleur, apres: "static func reposerCollageNatifPuisRejouer(_ frappe: CGEvent?) {")
     check("la frappe rejouée est suivie de son relâchement, signé",
           repose.contains("virtualKey: code, keyDown: false)")
               && repose.contains("relachement?.setIntegerValueField(.eventSourceUserData, value: signatureDuCollage)"))
+
+    // Le détecteur : les drapeaux sont ceux MESURÉS au moniteur.
+    let cmdReel: UInt64 = 0x0010_0108
+    let appuiPoseParNous: UInt64 = 0x2010_0108 // l'appui fautif de 18:20:13.609
+    check("un vrai Cmd tenu est physique, le Cmd de SuperWhisper ne l'est pas",
+          modificateursPhysiques(cmdReel) == maskCommandBrut && modificateursPhysiques(0x2010_0000) == 0)
+    check("un appui Cmd posé quand le clavier ne tient rien est détecté",
+          appuisSansLeClavier(drapeaux: appuiPoseParNous, etatPhysique: 0x100) == maskCommandBrut)
+    check("le même appui pendant que le clavier tient Cmd n'est pas une panne",
+          appuisSansLeClavier(drapeaux: appuiPoseParNous, etatPhysique: cmdReel) == 0)
+    check("un relâchement posé n'est jamais un appui", appuisSansLeClavier(drapeaux: 0x100, etatPhysique: 0x100) == 0)
+    check("le journal nomme les modificateurs", nomsDesModificateurs(maskCommandBrut | 0x0002_0000) == "Cmd+Maj")
+    check("le tap suit le clavier par ses événements et journalise l'appui jamais relâché",
+          sourceDuTap.contains("surveillerLesModificateurs(event, drapeaux: flags.rawValue)")
+              && sourceDuTap.contains("appuisSansLeClavier(drapeaux: drapeaux, etatPhysique: etatPhysique)")
+              && sourceDuTap.contains("appuisEnAttente[pid] = nil // relâché par son posteur"))
 }
 check("le chien de garde attend deux constats avant d'agir",
       sourceDuDelegue.contains("guard relachementsVus >= 2 else { return }"),
