@@ -837,6 +837,63 @@ do {
     echec("relance sans erreur", "\(error)")
 }
 
+// Un refus « vide » ne disait pas POURQUOI il était vide, et c'est exactement ce qui a
+// coûté une enquête le 2026-10-21 : le presse-papiers ne portait que `public.html` et un
+// `public.utf8-plain-text` de zéro octet, une mention Slack sans texte. Les types sont
+// déclarés, donc publics, et ne contiennent aucun contenu copié.
+section("Capture : le refus « vide » journalise les types", attendu: 4)
+do {
+    Journal.partage.configurer(dossier: URL(fileURLWithPath: makeSandbox()))
+    let faux = FauxPresse()
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    let service = CaptureService(pasteboard: faux, store: store,
+                                 policy: CapturePolicy(blockedBundleIDs: [], secretPattern: nil),
+                                 deviceID: "macA")
+
+    faux.poser(RawSnapshot(types: ["public.html", "public.utf8-plain-text"], text: "",
+                           rtf: nil, image: nil, fileURLs: [],
+                           sourceBundleID: "org.mozilla.firefox"))
+    _ = service.poll()   // première lecture vide : la relance est armée, rien au journal
+    _ = service.poll()   // seconde lecture vide : la ligne part
+    Journal.partage.vider()
+    let contenu = Journal.partage.fichier
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("la ligne d'un refus vide nomme les types déclarés",
+          contenu.contains("copie ignorée (vide, types [public.html, public.utf8-plain-text]) "
+              + "depuis org.mozilla.firefox"),
+          "obtenu « \(contenu) »")
+
+    // La portée du changement, prouvée : un refus qui n'est pas le vide garde sa ligne
+    // d'origine. Sans cette moitié, un code qui ajouterait les types partout passerait.
+    faux.poser(RawSnapshot(types: ["public.utf8-plain-text", CapturePolicy.concealed],
+                           text: "hunter2", rtf: nil, image: nil, fileURLs: [],
+                           sourceBundleID: "com.apple.keychainaccess"))
+    _ = service.poll()
+    Journal.partage.vider()
+    let apresConfidentiel = Journal.partage.fichier
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    let ligneConfidentielle = apresConfidentiel.split(separator: "\n")
+        .first { $0.contains("confidentiel") } ?? ""
+    check("un refus qui n'est pas le vide garde sa ligne d'origine, sans les types",
+          ligneConfidentielle.contains("copie ignorée (confidentiel) depuis com.apple.keychainaccess")
+              && !ligneConfidentielle.contains("types ["),
+          "obtenu « \(ligneConfidentielle) »")
+
+    // Le cas conforme : une copie ordinaire entre et se journalise comme avant. Sans
+    // lui, un service qui refuserait tout écrirait la même ligne vide et passerait.
+    faux.poser(RawSnapshot(types: ["public.utf8-plain-text"], text: "bonjour", rtf: nil,
+                           image: nil, fileURLs: [], sourceBundleID: "org.mozilla.firefox"))
+    check("une copie ordinaire est toujours capturée", service.poll() == true)
+    Journal.partage.vider()
+    let apresCopie = Journal.partage.fichier
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("une copie ordinaire se journalise comme avant",
+          apresCopie.contains("nouvelle entrée text, 7 octets, depuis org.mozilla.firefox"),
+          "obtenu « \(apresCopie) »")
+} catch {
+    echec("journal des types sans erreur", "\(error)")
+}
+
 // Notre PROPRE écriture reste vue par la capture, et la restauration désactivée par
 // défaut n'y change rien : c'est l'écriture du collage que `poll()` lit, pas la
 // restauration. En collage texte brut nous n'écrivons que `searchText` en `.string`,
