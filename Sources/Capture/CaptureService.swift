@@ -67,7 +67,15 @@ final class CaptureService {
             // Le motif part au journal, jamais le contenu. Le vide relu une seconde fois
             // y figure aussi : c'est la trace d'une copie PERDUE (incident SuperWhisper).
             if case let .ignore(motif) = decision, motif != "vide" || dueAUneRelance {
-                journal.info("capture", "copie ignorée (\(motif)) depuis \(source)")
+                // Un refus « vide » ne dit pas POURQUOI le presse-papiers était vide.
+                // Les types DÉCLARÉS le disent, et ils ne portent aucun contenu : mesuré
+                // le 2026-10-21, une mention Slack copiée depuis Firefox n'offrait que
+                // `public.html` et un `public.utf8-plain-text` de zéro octet. Sans cette
+                // liste, il fallait relire le presse-papiers à la main pour le savoir.
+                let types = motif == "vide"
+                    ? ", types [\(snapshot.types.joined(separator: ", "))]"
+                    : ""
+                journal.info("capture", "copie ignorée (\(motif)\(types)) depuis \(source)")
             }
             return false
         }
