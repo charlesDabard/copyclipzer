@@ -3949,6 +3949,23 @@ check("le chien de garde attend deux constats avant d'agir",
       sourceDuDelegue.contains("guard relachementsVus >= 2 else { return }"),
       "il couperait la parole au tap sur un relâchement ordinaire")
 
+// Correction du 2026-10-30 : sur macOS 27, l'appui sur l'icône de barre arrive au
+// moniteur GLOBAL de clic extérieur, 15 ms avant l'action de l'icône. Panneau ouvert,
+// cliquer l'icône le fermait à l'appui puis le rouvrait au relâchement (mesuré au
+// journal : « clic extérieur vu » à la position de l'icône, puis « panneau ouvert »).
+section("Panneau · un clic sur l'icône n'est pas un clic extérieur", attendu: 4)
+let cadreIconeMesure = CGRect(x: 2227, y: 1647, width: 40, height: 49)
+check("un appui sur l'icône ne referme pas le panneau",
+      !clicRefermeLePanneau(position: CGPoint(x: 2250.6, y: 1679.5), cadreIcone: cadreIconeMesure))
+check("un clic ailleurs referme toujours le panneau",
+      clicRefermeLePanneau(position: CGPoint(x: 1036.9, y: 21.3), cadreIcone: cadreIconeMesure))
+check("sans icône connue, tout clic extérieur referme",
+      clicRefermeLePanneau(position: CGPoint(x: 2250.6, y: 1679.5), cadreIcone: nil))
+check("le moniteur de clic extérieur consulte la règle et le cadre de l'icône",
+      sourceDuPanneauRecherche.contains("clicRefermeLePanneau(position: NSEvent.mouseLocation, cadreIcone: cadreIcone?())")
+          && sourceDuDelegue.contains("recherchePanel.cadreIcone = { [weak self] in self?.statusItem.button?.window?.frame }"),
+      "la règle existerait sans être branchée, et l'icône refermerait puis rouvrirait le panneau")
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
 nettoyerLesSandboxes()

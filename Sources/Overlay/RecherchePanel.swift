@@ -59,6 +59,11 @@ final class RecherchePanel: NSObject {
     /// n'apparaîtrait qu'au premier changement de sélection, jamais à l'ouverture.
     var onAffiche: (() -> Void)?
 
+    /// Le cadre de l'icône de barre en coordonnées d'écran, posé par l'`AppDelegate`, pour
+    /// que le moniteur de clic extérieur ne prenne pas un appui sur l'icône pour un clic
+    /// ailleurs (voir `clicRefermeLePanneau`).
+    var cadreIcone: (() -> CGRect?)?
+
     init(model: RechercheModel) {
         self.model = model
         // `.nonactivatingPanel` : le panneau monte à l'écran et prend le clavier SANS
@@ -250,7 +255,10 @@ final class RecherchePanel: NSObject {
     private func surveillerLeClicExterieur() {
         guard moniteurClic == nil else { return }
         moniteurClic = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.masquer()
+            guard let self,
+                  clicRefermeLePanneau(position: NSEvent.mouseLocation, cadreIcone: cadreIcone?())
+            else { return }
+            masquer()
         }
     }
 

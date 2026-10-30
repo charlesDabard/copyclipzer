@@ -706,6 +706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// donc aucun chemin de fermeture n'oublie de ranger l'aperçu.
     private func brancherLApercuDuPanneauDeRecherche() {
         recherchePanel.onMasquer = { [weak self] in self?.apercu.masquer() }
+        recherchePanel.cadreIcone = { [weak self] in self?.statusItem.button?.window?.frame }
         recherchePanel.onAffiche = { [weak self] in
             self?.rafraichirLApercuDeLaRecherche()
             self?.rechercheModel.ouvertureAuDemarrage = LoginItem.actif
