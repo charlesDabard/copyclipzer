@@ -134,6 +134,15 @@ final class Store {
                     .text(id)])
     }
 
+    /// Remonte une entrée en tête de l'historique, comme si elle venait d'être copiée :
+    /// c'est le cas d'une entrée collée depuis Copyclipzer, qui reste dans le
+    /// presse-papiers. Même mise à jour que la remontée d'un doublon dans `insert`.
+    func remonterEnTete(_ id: String) throws {
+        let maintenant = Date().timeIntervalSince1970
+        try db.run("UPDATE item SET modifiedAt = ?, createdAt = ? WHERE id = ?",
+                   [.double(maintenant), .double(maintenant), .text(id)])
+    }
+
     /// Supprime UNE entrée, son enregistrement et son blob sur disque.
     ///
     /// Le `ON DELETE CASCADE` de `payload` emporte la ligne, pas le fichier : il ne

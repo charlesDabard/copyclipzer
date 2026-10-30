@@ -3966,6 +3966,31 @@ check("le moniteur de clic extérieur consulte la règle et le cadre de l'icône
           && sourceDuDelegue.contains("recherchePanel.cadreIcone = { [weak self] in self?.statusItem.button?.window?.frame }"),
       "la règle existerait sans être branchée, et l'icône refermerait puis rouvrirait le panneau")
 
+// Correction du 2026-10-30 : coller le 5e élément depuis le geste Cmd l'écrivait dans le
+// presse-papiers sans le remonter en base (la capture ignore notre propre écriture). La
+// liste montrait encore l'ancien 1er en tête alors que le presse-papiers tenait le 5e,
+// donc le Cmd-V suivant collait le 5e sous un 1er en surbrillance.
+section("Collage · l'entrée collée remonte en tête", attendu: 4)
+do {
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    for (rang, hash) in ["h1", "h2", "h3", "h4", "h5"].enumerated() {
+        _ = try store.insert(ClipItem.text("texte \(hash)", hash: hash, device: "macA", at: Double(50 - rang * 10)),
+                             payload: nil, uti: "public.utf8-plain-text")
+    }
+    let cinquieme = try store.recent(limit: 10)[4]
+    check("le banc part avec h5 en 5e position", cinquieme.contentHash == "h5")
+    try store.remonterEnTete(cinquieme.id)
+    let apres = try store.recent(limit: 10).map(\.contentHash)
+    check("l'entrée collée passe en 1re position", apres.first == "h5", "obtenu \(apres)")
+    check("les autres gardent leur ordre derrière elle", apres == ["h5", "h1", "h2", "h3", "h4"], "obtenu \(apres)")
+}
+
+let ecritureDuCollage = corpsDeMethode(sourceDuColleur, apres: "private func collerMaintenant(")
+check("le collage remonte l'entrée en tête quand le presse-papiers la garde",
+      ecritureDuCollage.contains("if !restaurer {")
+          && ecritureDuCollage.contains("try store.remonterEnTete(item.id)"),
+      "le presse-papiers et la tête de liste divergeraient après chaque collage du geste")
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
 nettoyerLesSandboxes()
