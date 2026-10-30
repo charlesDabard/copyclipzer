@@ -48,3 +48,12 @@ func icone(_ kind: ClipKind) -> String {
     case .files: return "doc.on.doc"
     }
 }
+
+/// Dit si un clic vu par le moniteur de clic extérieur doit refermer le panneau de
+/// recherche. Un appui sur NOTRE icône de barre n'en est pas un : sur macOS 27 il arrive
+/// à ce moniteur global avant l'action de l'icône, et le panneau se refermait à l'appui
+/// pour se rouvrir au relâchement. Le clic sur l'icône est déjà le geste « basculer ».
+func clicRefermeLePanneau(position: CGPoint, cadreIcone: CGRect?) -> Bool {
+    guard let cadreIcone else { return true }
+    return !cadreIcone.contains(position)
+}

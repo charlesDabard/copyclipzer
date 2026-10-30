@@ -853,8 +853,8 @@ do {
     faux.poser(RawSnapshot(types: ["public.html", "public.utf8-plain-text"], text: "",
                            rtf: nil, image: nil, fileURLs: [],
                            sourceBundleID: "org.mozilla.firefox"))
-    _ = service.poll()   // première lecture vide : la relance est armée, rien au journal
-    _ = service.poll()   // seconde lecture vide : la ligne part
+    _ = service.poll() // première lecture vide : la relance est armée, rien au journal
+    _ = service.poll() // seconde lecture vide : la ligne part
     Journal.partage.vider()
     let contenu = Journal.partage.fichier
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
@@ -2489,7 +2489,7 @@ check("une touche vide ne désigne rien",
 // neuf bibliothèques (mesuré tâche 8, remesuré tâche 10). Ce qui se mesure dans cette
 // section est donc qu'une règle pure est BRANCHÉE, jamais ce qu'elle produit à
 // l'écran. Un garde-fou non branché est un garde-fou absent.
-section("tâche 16 : câblage du panneau de recherche", attendu: 12)
+section("tâche 16 : câblage du panneau de recherche", attendu: 13)
 
 /// La branche entière plutôt qu'une indentation exacte, même patron qu'à la tâche 15 :
 /// un littéral multiligne recopié depuis la source se casse au premier reformatage et
@@ -2557,6 +2557,14 @@ check("le panneau de recherche peut devenir clé",
 check("ouvrir le panneau lui donne le focus du champ",
       sourceDuPanneauRecherche.contains("makeFirstResponder"),
       "il faudrait cliquer dans la barre avant de pouvoir taper")
+// Correction du 2026-10-30 : quand l'application de devant tient la saisie sécurisée
+// (Chrome sur un champ mot de passe), macOS 27 refuse d'activer Copyclipzer, et un
+// panneau ordinaire d'une application inactive ne monte jamais à l'écran. Mesuré au
+// banc, Chrome devant : 0/4 sans `.nonactivatingPanel`, 0/4 avec `orderFrontRegardless`,
+// 4/4 avec. Le clic sur l'icône n'ouvrait alors rien, sans un mot au journal.
+check("le panneau de recherche s'affiche même quand l'activation est refusée",
+      sourceDuPanneauRecherche.contains("styleMask: [.borderless, .nonactivatingPanel]"),
+      "le clic sur l'icône n'ouvrirait plus rien quand Chrome tient la saisie sécurisée")
 
 // Le collage reste inchangé : il masque son écriture à la capture, par la fonction
 // partagée. Le chemin copie-sans-coller du menu a disparu avec le menu.
@@ -3535,7 +3543,7 @@ do {
                       options: .regularExpression) != nil, "obtenu \(ligne)")
 
     check("un fichier vide ne tourne jamais, même pour une ligne géante",
-          !doitTourner(tailleActuelle: 0, ajout: 10_000, plafond: 100))
+          !doitTourner(tailleActuelle: 0, ajout: 10000, plafond: 100))
     check("sous le plafond, on ne tourne pas",
           !doitTourner(tailleActuelle: 50, ajout: 40, plafond: 100))
     check("au-delà du plafond, on tourne",
@@ -3559,7 +3567,9 @@ do {
     check("un journal configuré écrit la ligne dans son fichier",
           contenu.contains("INFO   [test] première ligne"), "obtenu « \(contenu) »")
 
-    struct Panne: Error, CustomStringConvertible { var description: String { "disque plein" } }
+    struct Panne: Error, CustomStringConvertible { var description: String {
+        "disque plein"
+    } }
     let reussi = ecrit.essayer("store", "lecture") { 42 }
     let rate: Int? = ecrit.essayer("store", "écriture") { throw Panne() }
     ecrit.vider()
@@ -3628,7 +3638,7 @@ check("un tap refusé par le système laisse une ERREUR au journal",
 check("un tap désactivé par macOS laisse une alerte au journal",
       sourceDuTap.contains("tap désactivé par le système"))
 check("le démarrage refusé du tap est retenté", sourceDuDelegue.contains("guard !tap.start() else { return }")
-          && sourceDuDelegue.contains("relanceDuTap = Timer.scheduledTimer"))
+    && sourceDuDelegue.contains("relanceDuTap = Timer.scheduledTimer"))
 check("la saisie sécurisée est surveillée, avec le processus qui la tient",
       sourceDuDelegue.contains("IsSecureEventInputEnabled()")
           && sourceDuDelegue.contains("kCGSSessionSecureInputPID"))
@@ -3823,7 +3833,7 @@ do {
     let lecteur = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Capture/SystemPasteboard.swift"),
                                encoding: .utf8)) ?? ""
     check("le presse-papiers système suit cet ordre", lecteur.contains("typesDImageALire(declares: types)")
-          && !lecteur.contains("pb.data(forType: .tiff) ?? pb.data(forType: .png)"))
+        && !lecteur.contains("pb.data(forType: .tiff) ?? pb.data(forType: .png)"))
 
     check("texte brut d'un fichier : ses chemins en texte",
           representationAEcrire(kind: .files, texteBrut: true, aPayload: false) == .texte)
@@ -3845,12 +3855,12 @@ do {
     try store.insert(imageOCR, payload: nil, uti: "public.png")
     try store.insert(ClipItem.text("remise de 100% sur tout", hash: "h-pct", device: "m", at: 2), payload: nil, uti: "t")
     try store.insert(ClipItem.text("rien à voir", hash: "h-rien", device: "m", at: 3), payload: nil, uti: "t")
-    check("deux lettres trouvent le texte reconnu d'une image sans titre",
-          try store.search("ab", limit: 10).map(\.id) == [imageOCR.id])
+    try check("deux lettres trouvent le texte reconnu d'une image sans titre",
+              store.search("ab", limit: 10).map(\.id) == [imageOCR.id])
     let pourcent = try store.search("%", limit: 10)
     check("« % » seul ne rend que ce qui contient « % »",
           pourcent.count == 1 && pourcent.first?.title.contains("%") == true, "obtenu \(pourcent.map(\.title))")
-    check("« _ » seul ne rend rien quand rien ne le contient", try store.search("_", limit: 10).isEmpty)
+    try check("« _ » seul ne rend rien quand rien ne le contient", store.search("_", limit: 10).isEmpty)
 
     // Une écriture d'un AUTRE fil pendant une transaction qui échoue : sans le verrou de
     // `Database`, elle s'exécute DANS la transaction, sur la même connexion, et part avec
@@ -3873,7 +3883,9 @@ do {
     }
     fini.wait()
     let valeurs = try db.query("SELECT v FROM t").compactMap { ligne -> String? in
-        if case let .text(v)? = ligne["v"] { return v }
+        if case let .text(v)? = ligne["v"] {
+            return v
+        }
         return nil
     }
     check("l'écriture d'un autre fil survit au ROLLBACK d'une transaction",
@@ -3932,9 +3944,52 @@ do {
               && sourceDuTap.contains("appuisSansLeClavier(drapeaux: drapeaux, etatPhysique: etatPhysique)")
               && sourceDuTap.contains("appuisEnAttente[pid] = nil // relâché par son posteur"))
 }
+
 check("le chien de garde attend deux constats avant d'agir",
       sourceDuDelegue.contains("guard relachementsVus >= 2 else { return }"),
       "il couperait la parole au tap sur un relâchement ordinaire")
+
+// Correction du 2026-10-30 : sur macOS 27, l'appui sur l'icône de barre arrive au
+// moniteur GLOBAL de clic extérieur, 15 ms avant l'action de l'icône. Panneau ouvert,
+// cliquer l'icône le fermait à l'appui puis le rouvrait au relâchement (mesuré au
+// journal : « clic extérieur vu » à la position de l'icône, puis « panneau ouvert »).
+section("Panneau · un clic sur l'icône n'est pas un clic extérieur", attendu: 4)
+let cadreIconeMesure = CGRect(x: 2227, y: 1647, width: 40, height: 49)
+check("un appui sur l'icône ne referme pas le panneau",
+      !clicRefermeLePanneau(position: CGPoint(x: 2250.6, y: 1679.5), cadreIcone: cadreIconeMesure))
+check("un clic ailleurs referme toujours le panneau",
+      clicRefermeLePanneau(position: CGPoint(x: 1036.9, y: 21.3), cadreIcone: cadreIconeMesure))
+check("sans icône connue, tout clic extérieur referme",
+      clicRefermeLePanneau(position: CGPoint(x: 2250.6, y: 1679.5), cadreIcone: nil))
+check("le moniteur de clic extérieur consulte la règle et le cadre de l'icône",
+      sourceDuPanneauRecherche.contains("clicRefermeLePanneau(position: NSEvent.mouseLocation, cadreIcone: cadreIcone?())")
+          && sourceDuDelegue.contains("recherchePanel.cadreIcone = { [weak self] in self?.statusItem.button?.window?.frame }"),
+      "la règle existerait sans être branchée, et l'icône refermerait puis rouvrirait le panneau")
+
+// Correction du 2026-10-30 : coller le 5e élément depuis le geste Cmd l'écrivait dans le
+// presse-papiers sans le remonter en base (la capture ignore notre propre écriture). La
+// liste montrait encore l'ancien 1er en tête alors que le presse-papiers tenait le 5e,
+// donc le Cmd-V suivant collait le 5e sous un 1er en surbrillance.
+section("Collage · l'entrée collée remonte en tête", attendu: 4)
+do {
+    let store = try Store(path: makeSandbox() + "/db.sqlite")
+    for (rang, hash) in ["h1", "h2", "h3", "h4", "h5"].enumerated() {
+        _ = try store.insert(ClipItem.text("texte \(hash)", hash: hash, device: "macA", at: Double(50 - rang * 10)),
+                             payload: nil, uti: "public.utf8-plain-text")
+    }
+    let cinquieme = try store.recent(limit: 10)[4]
+    check("le banc part avec h5 en 5e position", cinquieme.contentHash == "h5")
+    try store.remonterEnTete(cinquieme.id)
+    let apres = try store.recent(limit: 10).map(\.contentHash)
+    check("l'entrée collée passe en 1re position", apres.first == "h5", "obtenu \(apres)")
+    check("les autres gardent leur ordre derrière elle", apres == ["h5", "h1", "h2", "h3", "h4"], "obtenu \(apres)")
+}
+
+let ecritureDuCollage = corpsDeMethode(sourceDuColleur, apres: "private func collerMaintenant(")
+check("le collage remonte l'entrée en tête quand le presse-papiers la garde",
+      ecritureDuCollage.contains("if !restaurer {")
+          && ecritureDuCollage.contains("try store.remonterEnTete(item.id)"),
+      "le presse-papiers et la tête de liste divergeraient après chaque collage du geste")
 
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")

@@ -274,6 +274,17 @@ final class Paster {
         // et `Store.insert` crée un doublon texte, à chaque collage.
         capture.ignorerJusqua(apresEcriture)
 
+        // 2 ter. L'entrée reste dans le presse-papiers (pas de restauration) : elle est
+        // donc la dernière copiée et doit remonter en tête, comme un doublon recopié.
+        // Correction du 2026-10-30 : sans ça, coller le 5e élément depuis le geste le
+        // laissait 5e dans la liste, et le Cmd-V suivant collait ce 5e sous un 1er en
+        // surbrillance. Ignorer la capture ci-dessus empêchait la remontée naturelle.
+        if !restaurer {
+            journal.essayer("collage", "remontée en tête de l'entrée collée") {
+                try store.remonterEnTete(item.id)
+            }
+        }
+
         // 3. Synthétiser le Cmd-V, signé comme venant de nous. La synthèse est partagée
         // avec le relais natif, voir `poserCmdV`.
         Paster.poserCmdV()

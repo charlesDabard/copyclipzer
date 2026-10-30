@@ -59,10 +59,23 @@ final class RecherchePanel: NSObject {
     /// n'apparaîtrait qu'au premier changement de sélection, jamais à l'ouverture.
     var onAffiche: (() -> Void)?
 
+    /// Le cadre de l'icône de barre en coordonnées d'écran, posé par l'`AppDelegate`, pour
+    /// que le moniteur de clic extérieur ne prenne pas un appui sur l'icône pour un clic
+    /// ailleurs (voir `clicRefermeLePanneau`).
+    var cadreIcone: (() -> CGRect?)?
+
     init(model: RechercheModel) {
         self.model = model
+        // `.nonactivatingPanel` : le panneau monte à l'écran et prend le clavier SANS
+        // attendre que l'application soit activée. Correction du 2026-10-30 : quand
+        // l'application de devant tient la saisie sécurisée (Chrome sur un champ mot de
+        // passe), macOS 27 refuse l'activation, et un panneau ordinaire d'une application
+        // inactive ne s'affichait jamais. Le clic sur l'icône n'ouvrait alors rien, alors
+        // que le journal écrivait « panneau ouvert ». `orderFrontRegardless` n'y change
+        // rien (mesuré : 0/4, contre 4/4 avec ce style).
         panel = PanneauClavier(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                               styleMask: [.borderless], backing: .buffered, defer: false)
+                               styleMask: [.borderless, .nonactivatingPanel],
+                               backing: .buffered, defer: false)
         super.init()
 
         let vue = RechercheView(model: model, enregistrerLeChamp: { [weak self] champ in
@@ -242,7 +255,10 @@ final class RecherchePanel: NSObject {
     private func surveillerLeClicExterieur() {
         guard moniteurClic == nil else { return }
         moniteurClic = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.masquer()
+            guard let self,
+                  clicRefermeLePanneau(position: NSEvent.mouseLocation, cadreIcone: cadreIcone?())
+            else { return }
+            masquer()
         }
     }
 
