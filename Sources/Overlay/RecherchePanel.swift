@@ -61,8 +61,16 @@ final class RecherchePanel: NSObject {
 
     init(model: RechercheModel) {
         self.model = model
+        // `.nonactivatingPanel` : le panneau monte à l'écran et prend le clavier SANS
+        // attendre que l'application soit activée. Correction du 2026-10-30 : quand
+        // l'application de devant tient la saisie sécurisée (Chrome sur un champ mot de
+        // passe), macOS 27 refuse l'activation, et un panneau ordinaire d'une application
+        // inactive ne s'affichait jamais. Le clic sur l'icône n'ouvrait alors rien, alors
+        // que le journal écrivait « panneau ouvert ». `orderFrontRegardless` n'y change
+        // rien (mesuré : 0/4, contre 4/4 avec ce style).
         panel = PanneauClavier(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                               styleMask: [.borderless], backing: .buffered, defer: false)
+                               styleMask: [.borderless, .nonactivatingPanel],
+                               backing: .buffered, defer: false)
         super.init()
 
         let vue = RechercheView(model: model, enregistrerLeChamp: { [weak self] champ in
