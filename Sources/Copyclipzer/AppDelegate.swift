@@ -404,7 +404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 rafraichirLApercuDuGeste()
             }
         case .fermer:
-            journal.info("geste", "fermé par Échap, rien n'est collé")
+            journal.info("geste", input == .clicExterieur
+                ? "fermé par un clic hors du panneau figé, rien n'est collé"
+                : "fermé par Échap, rien n'est collé")
             fermerLePanneau()
         case let .coller(index, brut):
             journal.info("geste", "collage de l'entrée de rang \(index + 1)\(brut ? " en texte brut" : "")")
@@ -871,6 +873,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         moniteurDeClic = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown,
                                                                       .rightMouseDown])
         { [weak self] _ in
+            // Par la machine, et non `fermerLePanneau()` direct : fermer l'affichage seul
+            // laissait la machine ouverte et figée, et chaque raccourci Cmd était avalé
+            // ensuite (panne du 2026-11-01). La sortie `.fermer` referme le panneau.
+            _ = self?.traiter(.clicExterieur)
+            // Filet : un clic ailleurs a toujours refermé l'affichage, même si la machine
+            // n'était plus ouverte. Sans effet de plus quand `.fermer` vient de le faire.
             self?.fermerLePanneau()
         }
     }

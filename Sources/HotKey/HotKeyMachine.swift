@@ -22,6 +22,13 @@ enum HotKeyInput: Equatable {
     /// parce que supprimer DÉCALE la liste : le recalage de `count` et de `index` est
     /// une règle, pas un détail d'affichage, et une règle se teste.
     case supprimerLaSelection
+    /// Un clic de souris HORS du panneau, vu par le moniteur global armé quand le panneau
+    /// se fige. C'est la sortie souris du gel, comme Échap en est la sortie clavier, et
+    /// elle passe par la machine pour la même raison : refermer l'affichage seul laissait
+    /// la machine `.ouvert` et figée. Panne du 2026-11-01 : chaque Cmd-V devenait « ligne
+    /// suivante », chaque Cmd-C une touche hors geste, tous deux avalés pendant vingt
+    /// minutes, jusqu'au relancement.
+    case clicExterieur
     /// Une frappe RÉPÉTÉE par le clavier (touche tenue), hors flèches. Ce n'est pas une
     /// intention : maintenir Cmd-V une demi-seconde de trop faisait défiler l'historique
     /// au rythme de la répétition (450 ms puis 75 ms sur ce poste, mesuré le 2026-10-17
@@ -159,6 +166,16 @@ struct HotKeyMachine {
             etat = .arme
             fige = false
             return (.fermer, true)
+
+        case (.ouvert, .clicExterieur):
+            // Comme Échap, rien n'est collé. `.inactif` et non `.arme` : la main est sur
+            // la souris, Cmd n'est en général plus tenu, et un `.arme` sans Cmd attendrait
+            // un relâchement qui ne viendra pas. Si Cmd est encore tenu, le prochain V
+            // passe en Cmd-V natif, ce qui est le comportement sûr. Le clic lui-même n'est
+            // jamais avalé, un moniteur global ne le pourrait d'ailleurs pas.
+            etat = .inactif
+            fige = false
+            return (.fermer, false)
 
         case (.ouvert, .sourisEntree):
             fige = true

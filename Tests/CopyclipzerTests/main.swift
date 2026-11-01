@@ -3991,6 +3991,51 @@ check("le collage remonte l'entrée en tête quand le presse-papiers la garde",
           && ecritureDuCollage.contains("try store.remonterEnTete(item.id)"),
       "le presse-papiers et la tête de liste divergeraient après chaque collage du geste")
 
+section("Geste · le clic hors du panneau figé libère Cmd", attendu: 9)
+do {
+    /// Panne du 2026-11-01, 23:53 à 00:13 : plus aucun Cmd-C ni Cmd-V pendant vingt minutes,
+    /// jusqu'au relancement. Le panneau figé par la souris se fermait sur un clic ailleurs,
+    /// mais seul l'AFFICHAGE se fermait : la machine restait `.ouvert` et figée. Chaque
+    /// Cmd-V suivant y était lu comme « descendre d'une ligne », chaque Cmd-C comme une
+    /// touche hors geste, et les deux étaient avalés. Le chien de garde ne rattrape pas un
+    /// panneau figé, exprès, donc rien ne débloquait. Le journal n'en disait rien.
+    func figee() -> HotKeyMachine {
+        var m = HotKeyMachine(count: 5)
+        _ = m.recevoir(.modificateurDown)
+        _ = m.recevoir(.key(.v))
+        _ = m.recevoir(.sourisEntree)
+        _ = m.recevoir(.modificateurUp)
+        return m
+    }
+
+    // Le cas conforme d'abord : Échap libère déjà, c'est la référence du clic.
+    var parEchap = figee()
+    _ = parEchap.recevoir(.modificateurDown)
+    let (sortieEchap, _) = parEchap.recevoir(.key(.escape))
+    check("Échap referme le panneau figé", sortieEchap == .fermer, "obtenu \(sortieEchap)")
+
+    var m = figee()
+    check("le banc part d'un panneau ouvert et figé", m.etat == .ouvert && m.fige)
+    let (sortie, consomme) = m.recevoir(.clicExterieur)
+    check("le clic ailleurs referme le geste", sortie == .fermer, "obtenu \(sortie)")
+    check("le clic ailleurs ne demande pas d'avaler le clic", !consomme)
+    check("le clic ailleurs sort la machine de l'état ouvert", m.etat != .ouvert, "obtenu \(m.etat)")
+    check("le clic ailleurs dégèle la machine", !m.fige)
+
+    // Ce que l'utilisateur a vécu, rejoué : après le clic, Cmd-C et Cmd-V reviennent.
+    _ = m.recevoir(.modificateurDown)
+    let (_, copieAvalee) = m.recevoir(.key(.other))
+    check("après le clic, Cmd-C n'est plus avalé", !copieAvalee)
+    let (sortieV, _) = m.recevoir(.key(.v))
+    check("après le clic, Cmd-V rouvre un geste neuf", sortieV == .ouvrir, "obtenu \(sortieV)")
+
+    // Le branchement : un garde-fou non branché est un garde-fou absent.
+    check("le moniteur de clic extérieur passe par la machine",
+          corpsDeMethode(sourceDuDelegue, apres: "private func surveillerLeClicExterieur() {")
+              .contains("traiter(.clicExterieur)"),
+          "le clic refermerait l'affichage en laissant la machine ouverte et figée")
+}
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
 nettoyerLesSandboxes()
