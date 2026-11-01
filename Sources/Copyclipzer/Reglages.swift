@@ -18,6 +18,7 @@ final class Reglages: ObservableObject {
         static let raccourciCommande = "raccourciCommande"
         static let raccourciMajuscule = "raccourciMajuscule"
         static let raccourciControle = "raccourciControle"
+        static let fnMajOuvre = "fnMajOuvre"
     }
 
     @Published var tailleHistorique: Int {
@@ -46,6 +47,13 @@ final class Reglages: ObservableObject {
         didSet { persisterRaccourci() }
     }
 
+    /// fn+Maj ouvre le panneau, en plus du raccourci configuré. Actif par défaut : c'est
+    /// une demande explicite (2026-11-02). Désactivable depuis le menu de l'engrenage, pour
+    /// le jour où l'accord gênerait un autre usage de la touche fn.
+    @Published var fnMajOuvre: Bool {
+        didSet { defaults.set(fnMajOuvre, forKey: Cle.fnMajOuvre) }
+    }
+
     private init() {
         let brut = defaults.object(forKey: Cle.taille) as? Int ?? 1000
         tailleHistorique = tailleHistoriqueBornee(brut)
@@ -53,6 +61,7 @@ final class Reglages: ObservableObject {
         retentionJours = retentionJoursBornee(brutRetention)
         appsExclues = defaults.stringArray(forKey: Cle.appsExclues) ?? []
         raccourciOuverture = Reglages.lireRaccourci(defaults)
+        fnMajOuvre = defaults.object(forKey: Cle.fnMajOuvre) as? Bool ?? true
     }
 
     /// Aucune clé présente signifie « jamais réglé », donc défaut. On teste la touche

@@ -499,3 +499,50 @@ func doitRelireLeCompte(etat: HotKeyState, input: HotKeyInput) -> Bool {
 func relachementManque(etat: HotKeyState, commandeTenue: Bool) -> Bool {
     etat != .inactif && !commandeTenue
 }
+
+/// L'accord fn+Maj, qui ouvre le panneau de recherche (demandé le 2026-11-02).
+///
+/// Un accord de modificateurs SEULS n'a aucune touche à comparer, donc pas de place dans
+/// `RaccourciGlobal` : il se lit dans la suite des `flagsChanged`. Il déclenche au
+/// RELÂCHEMENT et non à l'appui, et seulement si rien d'autre n'a été touché pendant qu'il
+/// était tenu. À l'appui, fn+Maj+flèche, qui sélectionne jusqu'au début ou à la fin de la
+/// ligne, ouvrirait le panneau au milieu de chaque sélection.
+///
+/// Pur, comme le reste de ce fichier : le tap lui passe des booléens et l'avertit des
+/// frappes, il ne lit lui-même aucun drapeau.
+struct AccordFnMaj {
+    /// fn et Maj sont tenus ensemble, seuls, sans frappe depuis.
+    private(set) var tenu = false
+    /// Accord gâché (une frappe ou un autre modificateur s'en est mêlé). Il ne se réarme
+    /// qu'une fois tous les modificateurs relâchés : fn+Maj+Cmd puis relâcher Cmd n'est
+    /// pas un fn+Maj.
+    private var annule = false
+    /// Un modificateur est-il tenu, d'après le dernier `flagsChanged` ? Une frappe sans
+    /// modificateur ne doit rien gâcher.
+    private var unModificateurTenu = false
+
+    /// À chaque `flagsChanged` du clavier. Rend vrai, une seule fois, quand un accord
+    /// fn+Maj propre se relâche.
+    mutating func modificateurs(fn: Bool, maj: Bool, autres: Bool) -> Bool {
+        unModificateurTenu = fn || maj || autres
+        if !unModificateurTenu { annule = false }
+        if autres {
+            tenu = false
+            annule = true
+            return false
+        }
+        if fn && maj {
+            if !annule { tenu = true }
+            return false
+        }
+        defer { tenu = false }
+        return tenu
+    }
+
+    /// À chaque frappe du clavier. Une frappe pendant que fn ou Maj est tenu gâche l'accord.
+    mutating func frappe() {
+        guard unModificateurTenu else { return }
+        tenu = false
+        annule = true
+    }
+}

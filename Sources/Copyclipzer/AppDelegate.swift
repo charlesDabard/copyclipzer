@@ -305,6 +305,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // quoi dépasser le délai que macOS accorde au tap, qui le coupe alors
             // (`tapDisabledByTimeout`) et laisse filer les frappes suivantes sans nous.
             onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } },
+            // fn+Maj, au relâchement (voir `AccordFnMaj`). Même ouverture que le raccourci
+            // global, renvoyée hors du callback pour la même raison, et coupée par le réglage.
+            onAccordFnMaj: { [weak self] in
+                guard let self, self.reglages.fnMajOuvre else { return }
+                journal.info("raccourci", "fn+Maj : ouverture du panneau")
+                DispatchQueue.main.async { self.recherchePanel.afficher() }
+            },
             // L'état vivant, relu par le tap à chaque événement. Il n'a qu'un usage :
             // effacer la capture de Cmd-C et Cmd-X pendant que l'overlay est ouvert, où X
             // épingle. Le repli `.inactif` couvre le seul cas où `self` est parti.
@@ -761,6 +768,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.reglages.raccourciOuverture = self.raccourcisProposes[index].raccourci
             self.rechercheModel.raccourciActif = index
         }
+        rechercheModel.onBasculerFnMaj = { [weak self] in
+            guard let self else { return }
+            self.reglages.fnMajOuvre.toggle()
+            self.rechercheModel.fnMajOuvre = self.reglages.fnMajOuvre
+            journal.info("reglages", "fn+Maj ouvre le panneau : \(self.reglages.fnMajOuvre ? "oui" : "non")")
+        }
         rechercheModel.onBasculerApp = { [weak self] identifiant in
             guard let self else { return }
             if self.reglages.appsExclues.contains(identifiant) {
@@ -781,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rechercheModel.raccourciActif =
             raccourcisProposes.firstIndex { $0.raccourci == reglages.raccourciOuverture } ?? -1
         rechercheModel.appsExclues = Set(reglages.appsExclues)
+        rechercheModel.fnMajOuvre = reglages.fnMajOuvre
 
         var vus = Set<String>()
         var apps: [AppExcluable] = []

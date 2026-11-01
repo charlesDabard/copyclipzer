@@ -4036,6 +4036,84 @@ do {
           "le clic refermerait l'affichage en laissant la machine ouverte et figée")
 }
 
+section("Raccourci fn+Maj", attendu: 18)
+do {
+    // Demandé le 2026-11-02 : fn+Maj ouvre le panneau, en plus du raccourci configuré.
+    // Un accord de modificateurs seuls n'a pas de touche à comparer : il se détecte dans
+    // la suite des `flagsChanged`, et il ne déclenche qu'au RELÂCHEMENT, sinon fn+Maj+flèche
+    // (sélectionner jusqu'au début de ligne) ouvrirait le panneau au milieu d'une sélection.
+
+    // ACCEPTATION, dans les deux ordres d'appui.
+    var a = AccordFnMaj()
+    check("fn seul ne déclenche rien", !a.modificateurs(fn: true, maj: false, autres: false))
+    check("fn puis Maj, encore tenus, ne déclenche rien", !a.modificateurs(fn: true, maj: true, autres: false))
+    check("relâcher Maj après fn+Maj déclenche", a.modificateurs(fn: true, maj: false, autres: false))
+    check("relâcher fn ensuite ne redéclenche pas", !a.modificateurs(fn: false, maj: false, autres: false))
+
+    var b = AccordFnMaj()
+    _ = b.modificateurs(fn: false, maj: true, autres: false)
+    _ = b.modificateurs(fn: true, maj: true, autres: false)
+    check("Maj puis fn, relâcher fn déclenche", b.modificateurs(fn: false, maj: true, autres: false))
+
+    var simultane = AccordFnMaj()
+    _ = simultane.modificateurs(fn: true, maj: true, autres: false)
+    check("relâcher les deux d'un coup déclenche", simultane.modificateurs(fn: false, maj: false, autres: false))
+
+    // REFUS : chaque cas est un vrai usage qui ouvrirait le panneau par erreur.
+    var seulMaj = AccordFnMaj()
+    _ = seulMaj.modificateurs(fn: false, maj: true, autres: false)
+    check("Maj seul relâché ne déclenche rien", !seulMaj.modificateurs(fn: false, maj: false, autres: false))
+
+    var fleche = AccordFnMaj()
+    _ = fleche.modificateurs(fn: true, maj: true, autres: false)
+    fleche.frappe()
+    check("fn+Maj+flèche ne déclenche pas au relâchement",
+          !fleche.modificateurs(fn: true, maj: false, autres: false),
+          "sélectionner au clavier ouvrirait le panneau")
+
+    var avecCmd = AccordFnMaj()
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("ajouter Cmd à fn+Maj ne déclenche pas", !avecCmd.modificateurs(fn: true, maj: true, autres: true))
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("relâcher Cmd puis fn+Maj ne déclenche toujours pas",
+          !avecCmd.modificateurs(fn: true, maj: false, autres: false),
+          "un accord entamé avec un autre modificateur n'est pas fn+Maj")
+
+    var majuscule = AccordFnMaj()
+    _ = majuscule.modificateurs(fn: false, maj: true, autres: false)
+    majuscule.frappe()
+    _ = majuscule.modificateurs(fn: true, maj: true, autres: false)
+    check("taper une majuscule puis toucher fn ne déclenche pas",
+          !majuscule.modificateurs(fn: false, maj: true, autres: false))
+
+    // Le négatif ne vaut que si le positif suit : après une annulation et un relâchement
+    // complet, un accord propre doit de nouveau déclencher.
+    _ = avecCmd.modificateurs(fn: false, maj: false, autres: false)
+    _ = avecCmd.modificateurs(fn: true, maj: false, autres: false)
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("après une annulation et un relâchement complet, fn+Maj déclenche de nouveau",
+          avecCmd.modificateurs(fn: false, maj: true, autres: false))
+
+    var apresFrappe = AccordFnMaj()
+    apresFrappe.frappe()
+    _ = apresFrappe.modificateurs(fn: true, maj: true, autres: false)
+    check("une frappe sans modificateur ne bloque pas l'accord suivant",
+          apresFrappe.modificateurs(fn: false, maj: false, autres: false))
+
+    // Le branchement, lu dans le texte comme le reste du tap et de l'assemblage.
+    check("le tap nourrit l'accord avec le drapeau fn",
+          sourceDuTap.contains("accordFnMaj.modificateurs(fn: flags.contains(.maskSecondaryFn)"))
+    check("le tap annule l'accord sur une frappe", sourceDuTap.contains("accordFnMaj.frappe()"))
+    check("le tap ignore les événements synthétiques pour l'accord",
+          sourceDuTap.contains("if !synthetique {\n            if typePur == .flagsChanged"),
+          "un outil qui poste fn+Maj ouvrirait le panneau")
+    check("le tap déclenche le rappel de l'accord", sourceDuTap.contains("onAccordFnMaj?()"))
+    check("l'assemblage ouvre le panneau sur fn+Maj, si le réglage le permet",
+          sourceDuDelegue.contains("onAccordFnMaj: { [weak self] in")
+              && sourceDuDelegue.contains("self.reglages.fnMajOuvre"),
+          "l'accord serait détecté sans rien ouvrir, ou malgré le réglage")
+}
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
 nettoyerLesSandboxes()

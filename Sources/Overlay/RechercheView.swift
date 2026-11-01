@@ -35,6 +35,8 @@ final class RechercheModel: ObservableObject {
     /// Libellés des raccourcis prédéfinis et l'index de celui qui est actif.
     @Published var raccourcisLibelles: [String] = []
     @Published var raccourciActif: Int = 0
+    /// fn+Maj ouvre aussi le panneau, reflet de `Reglages.fnMajOuvre`.
+    @Published var fnMajOuvre: Bool = true
     /// Les apps proposées à l'exclusion (en cours d'exécution ou déjà exclues) : identifiant
     /// de bundle et nom lisible. `appsExclues` porte les identifiants cochés.
     @Published var appsExcluables: [AppExcluable] = []
@@ -43,6 +45,7 @@ final class RechercheModel: ObservableObject {
     var onChoisirTaille: ((Int) -> Void)?
     var onChoisirRetention: ((Int) -> Void)?
     var onChoisirRaccourci: ((Int) -> Void)?
+    var onBasculerFnMaj: (() -> Void)?
     var onBasculerApp: ((String) -> Void)?
 
     var onRequete: ((String) -> Void)?
@@ -333,6 +336,10 @@ struct RechercheView: View {
                         Text(lib).tag(i)
                     }
                 }
+                Toggle(l10n("reglages.raccourci.fnmaj"), isOn: Binding(
+                    get: { model.fnMajOuvre },
+                    set: { _ in model.onBasculerFnMaj?() }
+                ))
 
                 Divider()
                 Button(l10n("action.tout_sauf_epingles")) { model.onSupprimerSaufEpingles?() }
