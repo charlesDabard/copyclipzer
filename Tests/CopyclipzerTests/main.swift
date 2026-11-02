@@ -3991,6 +3991,134 @@ check("le collage remonte l'entrée en tête quand le presse-papiers la garde",
           && ecritureDuCollage.contains("try store.remonterEnTete(item.id)"),
       "le presse-papiers et la tête de liste divergeraient après chaque collage du geste")
 
+section("Geste · le clic hors du panneau figé libère Cmd", attendu: 9)
+do {
+    /// Panne du 2026-11-01, 23:53 à 00:13 : plus aucun Cmd-C ni Cmd-V pendant vingt minutes,
+    /// jusqu'au relancement. Le panneau figé par la souris se fermait sur un clic ailleurs,
+    /// mais seul l'AFFICHAGE se fermait : la machine restait `.ouvert` et figée. Chaque
+    /// Cmd-V suivant y était lu comme « descendre d'une ligne », chaque Cmd-C comme une
+    /// touche hors geste, et les deux étaient avalés. Le chien de garde ne rattrape pas un
+    /// panneau figé, exprès, donc rien ne débloquait. Le journal n'en disait rien.
+    func figee() -> HotKeyMachine {
+        var m = HotKeyMachine(count: 5)
+        _ = m.recevoir(.modificateurDown)
+        _ = m.recevoir(.key(.v))
+        _ = m.recevoir(.sourisEntree)
+        _ = m.recevoir(.modificateurUp)
+        return m
+    }
+
+    // Le cas conforme d'abord : Échap libère déjà, c'est la référence du clic.
+    var parEchap = figee()
+    _ = parEchap.recevoir(.modificateurDown)
+    let (sortieEchap, _) = parEchap.recevoir(.key(.escape))
+    check("Échap referme le panneau figé", sortieEchap == .fermer, "obtenu \(sortieEchap)")
+
+    var m = figee()
+    check("le banc part d'un panneau ouvert et figé", m.etat == .ouvert && m.fige)
+    let (sortie, consomme) = m.recevoir(.clicExterieur)
+    check("le clic ailleurs referme le geste", sortie == .fermer, "obtenu \(sortie)")
+    check("le clic ailleurs ne demande pas d'avaler le clic", !consomme)
+    check("le clic ailleurs sort la machine de l'état ouvert", m.etat != .ouvert, "obtenu \(m.etat)")
+    check("le clic ailleurs dégèle la machine", !m.fige)
+
+    // Ce que l'utilisateur a vécu, rejoué : après le clic, Cmd-C et Cmd-V reviennent.
+    _ = m.recevoir(.modificateurDown)
+    let (_, copieAvalee) = m.recevoir(.key(.other))
+    check("après le clic, Cmd-C n'est plus avalé", !copieAvalee)
+    let (sortieV, _) = m.recevoir(.key(.v))
+    check("après le clic, Cmd-V rouvre un geste neuf", sortieV == .ouvrir, "obtenu \(sortieV)")
+
+    // Le branchement : un garde-fou non branché est un garde-fou absent.
+    check("le moniteur de clic extérieur passe par la machine",
+          corpsDeMethode(sourceDuDelegue, apres: "private func surveillerLeClicExterieur() {")
+              .contains("traiter(.clicExterieur)"),
+          "le clic refermerait l'affichage en laissant la machine ouverte et figée")
+}
+
+section("Raccourci fn+Maj", attendu: 19)
+do {
+    // Demandé le 2026-11-02 : fn+Maj ouvre le panneau, en plus du raccourci configuré.
+    // Un accord de modificateurs seuls n'a pas de touche à comparer : il se détecte dans
+    // la suite des `flagsChanged`, et il ne déclenche qu'au RELÂCHEMENT, sinon fn+Maj+flèche
+    // (sélectionner jusqu'au début de ligne) ouvrirait le panneau au milieu d'une sélection.
+
+    // ACCEPTATION, dans les deux ordres d'appui.
+    var a = AccordFnMaj()
+    check("fn seul ne déclenche rien", !a.modificateurs(fn: true, maj: false, autres: false))
+    check("fn puis Maj, encore tenus, ne déclenche rien", !a.modificateurs(fn: true, maj: true, autres: false))
+    check("relâcher Maj après fn+Maj déclenche", a.modificateurs(fn: true, maj: false, autres: false))
+    check("relâcher fn ensuite ne redéclenche pas", !a.modificateurs(fn: false, maj: false, autres: false))
+
+    var b = AccordFnMaj()
+    _ = b.modificateurs(fn: false, maj: true, autres: false)
+    _ = b.modificateurs(fn: true, maj: true, autres: false)
+    check("Maj puis fn, relâcher fn déclenche", b.modificateurs(fn: false, maj: true, autres: false))
+
+    var simultane = AccordFnMaj()
+    _ = simultane.modificateurs(fn: true, maj: true, autres: false)
+    check("relâcher les deux d'un coup déclenche", simultane.modificateurs(fn: false, maj: false, autres: false))
+
+    // REFUS : chaque cas est un vrai usage qui ouvrirait le panneau par erreur.
+    var seulMaj = AccordFnMaj()
+    _ = seulMaj.modificateurs(fn: false, maj: true, autres: false)
+    check("Maj seul relâché ne déclenche rien", !seulMaj.modificateurs(fn: false, maj: false, autres: false))
+
+    var fleche = AccordFnMaj()
+    _ = fleche.modificateurs(fn: true, maj: true, autres: false)
+    fleche.frappe()
+    check("fn+Maj+flèche ne déclenche pas au relâchement",
+          !fleche.modificateurs(fn: true, maj: false, autres: false),
+          "sélectionner au clavier ouvrirait le panneau")
+
+    var avecCmd = AccordFnMaj()
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("ajouter Cmd à fn+Maj ne déclenche pas", !avecCmd.modificateurs(fn: true, maj: true, autres: true))
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("relâcher Cmd puis fn+Maj ne déclenche toujours pas",
+          !avecCmd.modificateurs(fn: true, maj: false, autres: false),
+          "un accord entamé avec un autre modificateur n'est pas fn+Maj")
+
+    var majuscule = AccordFnMaj()
+    _ = majuscule.modificateurs(fn: false, maj: true, autres: false)
+    majuscule.frappe()
+    _ = majuscule.modificateurs(fn: true, maj: true, autres: false)
+    check("taper une majuscule puis toucher fn ne déclenche pas",
+          !majuscule.modificateurs(fn: false, maj: true, autres: false))
+
+    // Le négatif ne vaut que si le positif suit : après une annulation et un relâchement
+    // complet, un accord propre doit de nouveau déclencher.
+    _ = avecCmd.modificateurs(fn: false, maj: false, autres: false)
+    _ = avecCmd.modificateurs(fn: true, maj: false, autres: false)
+    _ = avecCmd.modificateurs(fn: true, maj: true, autres: false)
+    check("après une annulation et un relâchement complet, fn+Maj déclenche de nouveau",
+          avecCmd.modificateurs(fn: false, maj: true, autres: false))
+
+    var apresFrappe = AccordFnMaj()
+    apresFrappe.frappe()
+    _ = apresFrappe.modificateurs(fn: true, maj: true, autres: false)
+    check("une frappe sans modificateur ne bloque pas l'accord suivant",
+          apresFrappe.modificateurs(fn: false, maj: false, autres: false))
+
+    // Le branchement, lu dans le texte comme le reste du tap et de l'assemblage.
+    check("le tap nourrit l'accord avec le drapeau fn",
+          sourceDuTap.contains("accordFnMaj.modificateurs(fn: flags.contains(.maskSecondaryFn)"))
+    check("le tap annule l'accord sur une frappe", sourceDuTap.contains("accordFnMaj.frappe()"))
+    check("le tap ignore les événements synthétiques pour l'accord",
+          sourceDuTap.contains("if !synthetique {\n            if typePur == .flagsChanged"),
+          "un outil qui poste fn+Maj ouvrirait le panneau")
+    check("le tap déclenche le rappel de l'accord", sourceDuTap.contains("onAccordFnMaj?()"))
+    check("l'assemblage branche fn+Maj sur le panneau, si le réglage le permet",
+          sourceDuDelegue.contains("onAccordFnMaj: { [weak self] in")
+              && sourceDuDelegue.contains("self.reglages.fnMajOuvre"),
+          "l'accord serait détecté sans rien ouvrir, ou malgré le réglage")
+    // Demandé le 2026-11-02, après le premier essai : « quand je réappuie sur fn+Maj, ça
+    // doit fermer ». Bascule, comme le clic sur l'icône, et non ouverture seule.
+    check("fn+Maj bascule le panneau : un second accord le ferme",
+          sourceDuDelegue.contains("DispatchQueue.main.async { self.recherchePanel.basculer() }"),
+          "un second fn+Maj laisserait le panneau ouvert")
+}
+
 verifierLesSections()
 print("\nrésultat : \(passed) ok, \(failures) échec(s)")
 nettoyerLesSandboxes()

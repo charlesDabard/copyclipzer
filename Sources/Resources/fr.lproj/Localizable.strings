@@ -60,6 +60,9 @@
 /* Menu reglages : titre du sous-menu du raccourci d'ouverture. */
 "reglages.section.raccourci" = "Raccourci d'ouverture";
 
+/* Menu reglages : case qui active l'ouverture du panneau par l'accord fn+Maj, en plus du raccourci choisi. */
+"reglages.raccourci.fnmaj" = "fn + Maj ouvre et ferme aussi le panneau";
+
 /* Reglages : note sur les entrees epinglees. */
 "reglages.historique.note" = "Les entrées épinglées sont toujours conservées, quel que soit ce nombre.";
 

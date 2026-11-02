@@ -14,6 +14,13 @@ final class EventTap {
     /// alors CONSOMMÉ par le tap, donc il n'atteint ni l'application de devant ni la
     /// logique du geste. Optionnel, comme le sont les autres gestes secondaires.
     private let onRaccourciGlobal: (() -> Void)?
+    /// Appelé au relâchement d'un accord fn+Maj propre (voir `AccordFnMaj`). Rien n'est
+    /// avalé : un `flagsChanged` ne se consomme jamais, il laisserait le modificateur
+    /// coincé pour l'application de devant.
+    private let onAccordFnMaj: (() -> Void)?
+    /// L'accord en cours. Un état, comme `etatPhysique`, parce qu'il se lit dans la SUITE
+    /// des événements ; la règle, elle, vit dans `AccordFnMaj`, du côté pur.
+    private var accordFnMaj = AccordFnMaj()
     /// L'état VIVANT du geste, relu à chaque événement. Une fermeture et non une
     /// copie : le tap ne détient aucun état, il va le lire là où il vit, dans la
     /// machine de l'assemblage. Un miroir tenu ici dériverait au premier oubli.
@@ -44,12 +51,14 @@ final class EventTap {
 
     init(onInput: @escaping (HotKeyInput) -> Bool, onCopyShortcut: @escaping () -> Void,
          onRaccourciGlobal: (() -> Void)?,
+         onAccordFnMaj: (() -> Void)? = nil,
          etatDuGeste: @escaping () -> HotKeyState,
          raccourciGlobal: @escaping () -> RaccourciGlobal)
     {
         self.onInput = onInput
         self.onCopyShortcut = onCopyShortcut
         self.onRaccourciGlobal = onRaccourciGlobal
+        self.onAccordFnMaj = onAccordFnMaj
         self.etatDuGeste = etatDuGeste
         self.raccourciGlobal = raccourciGlobal
     }
@@ -230,6 +239,24 @@ final class EventTap {
         {
             journal.info("tap", "Cmd-V synthétique d'un autre processus relayé tel quel "
                 + "(pid \(event.getIntegerValueField(.eventSourceUnixProcessID)))")
+        }
+
+        // L'accord fn+Maj, nourri par le CLAVIER seul : un outil qui poste des
+        // modificateurs (une macro, une dictée) n'ouvre pas le panneau. Il ne change rien
+        // à l'événement, l'aiguillage du geste qui suit le voit à l'identique.
+        if !synthetique {
+            if typePur == .flagsChanged {
+                if accordFnMaj.modificateurs(fn: flags.contains(.maskSecondaryFn),
+                                             maj: flags.contains(.maskShift),
+                                             autres: flags.contains(.maskCommand)
+                                                 || flags.contains(.maskAlternate)
+                                                 || flags.contains(.maskControl))
+                {
+                    onAccordFnMaj?()
+                }
+            } else if typePur == .keyDown {
+                accordFnMaj.frappe()
+            }
         }
 
         let decision = decider(type: typePur,

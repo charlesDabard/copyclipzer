@@ -305,6 +305,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // quoi dépasser le délai que macOS accorde au tap, qui le coupe alors
             // (`tapDisabledByTimeout`) et laisse filer les frappes suivantes sans nous.
             onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } },
+            // fn+Maj, au relâchement (voir `AccordFnMaj`). BASCULE et non ouverture seule,
+            // comme le clic sur l'icône : un second accord ferme le panneau et rend le focus
+            // (demandé le 2026-11-02). Renvoyé hors du callback pour la même raison que le
+            // raccourci global, et coupé par le réglage.
+            onAccordFnMaj: { [weak self] in
+                guard let self, self.reglages.fnMajOuvre else { return }
+                journal.info("raccourci", "fn+Maj : bascule du panneau")
+                DispatchQueue.main.async { self.recherchePanel.basculer() }
+            },
             // L'état vivant, relu par le tap à chaque événement. Il n'a qu'un usage :
             // effacer la capture de Cmd-C et Cmd-X pendant que l'overlay est ouvert, où X
             // épingle. Le repli `.inactif` couvre le seul cas où `self` est parti.
@@ -404,7 +413,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 rafraichirLApercuDuGeste()
             }
         case .fermer:
-            journal.info("geste", "fermé par Échap, rien n'est collé")
+            journal.info("geste", input == .clicExterieur
+                ? "fermé par un clic hors du panneau figé, rien n'est collé"
+                : "fermé par Échap, rien n'est collé")
             fermerLePanneau()
         case let .coller(index, brut):
             journal.info("geste", "collage de l'entrée de rang \(index + 1)\(brut ? " en texte brut" : "")")
@@ -759,6 +770,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.reglages.raccourciOuverture = self.raccourcisProposes[index].raccourci
             self.rechercheModel.raccourciActif = index
         }
+        rechercheModel.onBasculerFnMaj = { [weak self] in
+            guard let self else { return }
+            self.reglages.fnMajOuvre.toggle()
+            self.rechercheModel.fnMajOuvre = self.reglages.fnMajOuvre
+            journal.info("reglages", "fn+Maj ouvre le panneau : \(self.reglages.fnMajOuvre ? "oui" : "non")")
+        }
         rechercheModel.onBasculerApp = { [weak self] identifiant in
             guard let self else { return }
             if self.reglages.appsExclues.contains(identifiant) {
@@ -779,6 +796,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rechercheModel.raccourciActif =
             raccourcisProposes.firstIndex { $0.raccourci == reglages.raccourciOuverture } ?? -1
         rechercheModel.appsExclues = Set(reglages.appsExclues)
+        rechercheModel.fnMajOuvre = reglages.fnMajOuvre
 
         var vus = Set<String>()
         var apps: [AppExcluable] = []
@@ -871,6 +889,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         moniteurDeClic = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown,
                                                                       .rightMouseDown])
         { [weak self] _ in
+            // Par la machine, et non `fermerLePanneau()` direct : fermer l'affichage seul
+            // laissait la machine ouverte et figée, et chaque raccourci Cmd était avalé
+            // ensuite (panne du 2026-11-01). La sortie `.fermer` referme le panneau.
+            _ = self?.traiter(.clicExterieur)
+            // Filet : un clic ailleurs a toujours refermé l'affichage, même si la machine
+            // n'était plus ouverte. Sans effet de plus quand `.fermer` vient de le faire.
             self?.fermerLePanneau()
         }
     }

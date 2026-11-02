@@ -22,6 +22,13 @@ enum HotKeyInput: Equatable {
     /// parce que supprimer DÉCALE la liste : le recalage de `count` et de `index` est
     /// une règle, pas un détail d'affichage, et une règle se teste.
     case supprimerLaSelection
+    /// Un clic de souris HORS du panneau, vu par le moniteur global armé quand le panneau
+    /// se fige. C'est la sortie souris du gel, comme Échap en est la sortie clavier, et
+    /// elle passe par la machine pour la même raison : refermer l'affichage seul laissait
+    /// la machine `.ouvert` et figée. Panne du 2026-11-01 : chaque Cmd-V devenait « ligne
+    /// suivante », chaque Cmd-C une touche hors geste, tous deux avalés pendant vingt
+    /// minutes, jusqu'au relancement.
+    case clicExterieur
     /// Une frappe RÉPÉTÉE par le clavier (touche tenue), hors flèches. Ce n'est pas une
     /// intention : maintenir Cmd-V une demi-seconde de trop faisait défiler l'historique
     /// au rythme de la répétition (450 ms puis 75 ms sur ce poste, mesuré le 2026-10-17
@@ -159,6 +166,16 @@ struct HotKeyMachine {
             etat = .arme
             fige = false
             return (.fermer, true)
+
+        case (.ouvert, .clicExterieur):
+            // Comme Échap, rien n'est collé. `.inactif` et non `.arme` : la main est sur
+            // la souris, Cmd n'est en général plus tenu, et un `.arme` sans Cmd attendrait
+            // un relâchement qui ne viendra pas. Si Cmd est encore tenu, le prochain V
+            // passe en Cmd-V natif, ce qui est le comportement sûr. Le clic lui-même n'est
+            // jamais avalé, un moniteur global ne le pourrait d'ailleurs pas.
+            etat = .inactif
+            fige = false
+            return (.fermer, false)
 
         case (.ouvert, .sourisEntree):
             fige = true
@@ -481,4 +498,51 @@ func doitRelireLeCompte(etat: HotKeyState, input: HotKeyInput) -> Bool {
 /// laisser la machine armée sans Cmd fausserait le geste suivant.
 func relachementManque(etat: HotKeyState, commandeTenue: Bool) -> Bool {
     etat != .inactif && !commandeTenue
+}
+
+/// L'accord fn+Maj, qui ouvre le panneau de recherche (demandé le 2026-11-02).
+///
+/// Un accord de modificateurs SEULS n'a aucune touche à comparer, donc pas de place dans
+/// `RaccourciGlobal` : il se lit dans la suite des `flagsChanged`. Il déclenche au
+/// RELÂCHEMENT et non à l'appui, et seulement si rien d'autre n'a été touché pendant qu'il
+/// était tenu. À l'appui, fn+Maj+flèche, qui sélectionne jusqu'au début ou à la fin de la
+/// ligne, ouvrirait le panneau au milieu de chaque sélection.
+///
+/// Pur, comme le reste de ce fichier : le tap lui passe des booléens et l'avertit des
+/// frappes, il ne lit lui-même aucun drapeau.
+struct AccordFnMaj {
+    /// fn et Maj sont tenus ensemble, seuls, sans frappe depuis.
+    private(set) var tenu = false
+    /// Accord gâché (une frappe ou un autre modificateur s'en est mêlé). Il ne se réarme
+    /// qu'une fois tous les modificateurs relâchés : fn+Maj+Cmd puis relâcher Cmd n'est
+    /// pas un fn+Maj.
+    private var annule = false
+    /// Un modificateur est-il tenu, d'après le dernier `flagsChanged` ? Une frappe sans
+    /// modificateur ne doit rien gâcher.
+    private var unModificateurTenu = false
+
+    /// À chaque `flagsChanged` du clavier. Rend vrai, une seule fois, quand un accord
+    /// fn+Maj propre se relâche.
+    mutating func modificateurs(fn: Bool, maj: Bool, autres: Bool) -> Bool {
+        unModificateurTenu = fn || maj || autres
+        if !unModificateurTenu { annule = false }
+        if autres {
+            tenu = false
+            annule = true
+            return false
+        }
+        if fn && maj {
+            if !annule { tenu = true }
+            return false
+        }
+        defer { tenu = false }
+        return tenu
+    }
+
+    /// À chaque frappe du clavier. Une frappe pendant que fn ou Maj est tenu gâche l'accord.
+    mutating func frappe() {
+        guard unModificateurTenu else { return }
+        tenu = false
+        annule = true
+    }
 }
