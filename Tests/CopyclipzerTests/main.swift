@@ -4036,7 +4036,7 @@ do {
           "le clic refermerait l'affichage en laissant la machine ouverte et figée")
 }
 
-section("Raccourci fn+Maj", attendu: 18)
+section("Raccourci fn+Maj", attendu: 19)
 do {
     // Demandé le 2026-11-02 : fn+Maj ouvre le panneau, en plus du raccourci configuré.
     // Un accord de modificateurs seuls n'a pas de touche à comparer : il se détecte dans
@@ -4108,10 +4108,15 @@ do {
           sourceDuTap.contains("if !synthetique {\n            if typePur == .flagsChanged"),
           "un outil qui poste fn+Maj ouvrirait le panneau")
     check("le tap déclenche le rappel de l'accord", sourceDuTap.contains("onAccordFnMaj?()"))
-    check("l'assemblage ouvre le panneau sur fn+Maj, si le réglage le permet",
+    check("l'assemblage branche fn+Maj sur le panneau, si le réglage le permet",
           sourceDuDelegue.contains("onAccordFnMaj: { [weak self] in")
               && sourceDuDelegue.contains("self.reglages.fnMajOuvre"),
           "l'accord serait détecté sans rien ouvrir, ou malgré le réglage")
+    // Demandé le 2026-11-02, après le premier essai : « quand je réappuie sur fn+Maj, ça
+    // doit fermer ». Bascule, comme le clic sur l'icône, et non ouverture seule.
+    check("fn+Maj bascule le panneau : un second accord le ferme",
+          sourceDuDelegue.contains("DispatchQueue.main.async { self.recherchePanel.basculer() }"),
+          "un second fn+Maj laisserait le panneau ouvert")
 }
 
 verifierLesSections()

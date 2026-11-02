@@ -305,12 +305,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // quoi dépasser le délai que macOS accorde au tap, qui le coupe alors
             // (`tapDisabledByTimeout`) et laisse filer les frappes suivantes sans nous.
             onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } },
-            // fn+Maj, au relâchement (voir `AccordFnMaj`). Même ouverture que le raccourci
-            // global, renvoyée hors du callback pour la même raison, et coupée par le réglage.
+            // fn+Maj, au relâchement (voir `AccordFnMaj`). BASCULE et non ouverture seule,
+            // comme le clic sur l'icône : un second accord ferme le panneau et rend le focus
+            // (demandé le 2026-11-02). Renvoyé hors du callback pour la même raison que le
+            // raccourci global, et coupé par le réglage.
             onAccordFnMaj: { [weak self] in
                 guard let self, self.reglages.fnMajOuvre else { return }
-                journal.info("raccourci", "fn+Maj : ouverture du panneau")
-                DispatchQueue.main.async { self.recherchePanel.afficher() }
+                journal.info("raccourci", "fn+Maj : bascule du panneau")
+                DispatchQueue.main.async { self.recherchePanel.basculer() }
             },
             // L'état vivant, relu par le tap à chaque événement. Il n'a qu'un usage :
             // effacer la capture de Cmd-C et Cmd-X pendant que l'overlay est ouvert, où X

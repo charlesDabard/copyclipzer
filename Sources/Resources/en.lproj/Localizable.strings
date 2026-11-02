@@ -58,7 +58,7 @@
 "reglages.section.raccourci" = "Open shortcut";
 
 /* Settings menu: checkbox that lets the fn+Shift chord open the panel, on top of the chosen shortcut. */
-"reglages.raccourci.fnmaj" = "fn + Shift also opens the panel";
+"reglages.raccourci.fnmaj" = "fn + Shift also opens and closes the panel";
 
 /* Settings: number of kept entries. The %d is replaced by a number. */
 "reglages.historique.garder" = "Keep the last %d entries";
