@@ -43,15 +43,28 @@ fi
 # grandir à chaque version. Un entier, incrémenté ici, jamais saisi à la main.
 ANCIEN_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")
 NOUVEAU_BUILD=$((ANCIEN_BUILD + 1))
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NOUVEAU_BUILD" "$PLIST"
+# Les deux lignes seulement : PlistBuddy réécrivait tout le fichier (26 lignes de diff
+# pour deux valeurs, mesuré le 2026-11-08). On remplace la valeur sur sa ligne, puis on
+# relit le résultat, qui doit être exactement celui demandé.
+sed -i '' -E \
+	-e "s#(<key>CFBundleShortVersionString</key><string>)[^<]*#\1$VERSION#" \
+	-e "s#(<key>CFBundleVersion</key><string>)[^<]*#\1$NOUVEAU_BUILD#" \
+	"$PLIST"
+if [ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")" != "$VERSION" ] ||
+	[ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")" != "$NOUVEAU_BUILD" ]; then
+	echo "! $PLIST : le numéro de version n'a pas été écrit" >&2
+	exit 1
+fi
 echo "→ version $VERSION (build $ANCIEN_BUILD → $NOUVEAU_BUILD)"
 
 ./build.sh
 
 # Une release signée en ad-hoc changerait d'empreinte à chaque build : l'Accessibilité de
 # chaque utilisateur sauterait à chaque mise à jour. Seul le certificat stable la garde.
-if ! codesign -dv --verbose=2 Copyclipzer.app 2>&1 | grep -q "Authority=Copyclipzer Local"; then
+# La sortie est lue d'abord, puis cherchée : `codesign | grep -q` sous `pipefail` refusait
+# une app bien signée, grep -q quittant tôt et codesign mourant de SIGPIPE (2026-11-08).
+SIGNATURE=$(codesign -dv --verbose=2 Copyclipzer.app 2>&1 || true)
+if ! grep -q "Authority=Copyclipzer Local" <<<"$SIGNATURE"; then
 	echo "! Copyclipzer.app n'est pas signée par « Copyclipzer Local » : release refusée" >&2
 	echo "  recréer le certificat avec docs/CERTIFICAT-LOCAL.md" >&2
 	exit 1
