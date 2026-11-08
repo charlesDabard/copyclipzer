@@ -26,8 +26,10 @@ final class EventTap {
     /// machine de l'assemblage. Un miroir tenu ici dériverait au premier oubli.
     private let etatDuGeste: () -> HotKeyState
     /// Le raccourci VIVANT, relu à chaque événement pour la même raison que
-    /// `etatDuGeste` : changer le réglage doit prendre effet sans relancer le tap.
-    private let raccourciGlobal: () -> RaccourciGlobal
+    /// `etatDuGeste` : changer le réglage doit prendre effet sans relancer le tap. nil quand
+    /// aucune combinaison n'est active (fn+Maj choisi, choix pas encore fait, ou fenêtre
+    /// de choix ouverte) : la frappe suit alors son chemin ordinaire.
+    private let raccourciGlobal: () -> RaccourciGlobal?
 
     /// La frappe en cours de traitement, posée le temps de l'appel à `onInput` et à lui
     /// seul. C'est par elle que l'assemblage REJOUE un raccourci Cmd enchaîné sur un
@@ -53,7 +55,7 @@ final class EventTap {
          onRaccourciGlobal: (() -> Void)?,
          onAccordFnMaj: (() -> Void)? = nil,
          etatDuGeste: @escaping () -> HotKeyState,
-         raccourciGlobal: @escaping () -> RaccourciGlobal)
+         raccourciGlobal: @escaping () -> RaccourciGlobal?)
     {
         self.onInput = onInput
         self.onCopyShortcut = onCopyShortcut
@@ -215,13 +217,13 @@ final class EventTap {
         // tap rend `nil`, ce qui empêche à la fois la frappe d'atteindre l'application de
         // devant et la machine à états de la voir. Quand il ne correspond pas, on ne fait
         // RIEN ici et le chemin existant du geste reste strictement inchangé.
-        if typePur == .keyDown,
+        if typePur == .keyDown, let raccourci = raccourciGlobal(),
            correspondAuRaccourci(keycode: Int(code),
                                  option: flags.contains(.maskAlternate),
                                  commande: flags.contains(.maskCommand),
                                  majuscule: flags.contains(.maskShift),
                                  controle: flags.contains(.maskControl),
-                                 raccourci: raccourciGlobal())
+                                 raccourci: raccourci)
         {
             journal.info("raccourci", "raccourci global d'ouverture du panneau")
             onRaccourciGlobal?()

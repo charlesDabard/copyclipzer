@@ -9,14 +9,27 @@ let package = Package(
     name: "Copyclipzer",
     defaultLocalization: "fr",
     platforms: [.macOS(.v13)],
+    // Sparkle, la seule dependance : le moteur de mise a jour standard des apps macOS
+    // (choisi le 2026-11-08 sur le modele de Vibe Island). Version exacte, jamais une
+    // plage : une mise a jour du moteur de mise a jour se decide, elle ne s'herite pas.
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+    ],
     targets: [
         // Seule la cible applicative embarque les traductions. Les trois autres cibles
         // n'ont AUCUN bundle de ressources : un fichier symlinke qui appellerait
         // `NSLocalizedString(..., bundle: .module)` y casserait la compilation. C'est la
         // raison pour laquelle les chaines purement logiques (MenuFormat, ApercuFormat,
         // ClipItem...) restent en dur pour l'instant.
-        .executableTarget(name: "Copyclipzer", path: "Sources",
-                          resources: [.process("Resources")]),
+        //
+        // Le rpath pointe vers Contents/Frameworks, ou `build.sh` copie Sparkle.framework.
+        // Sans lui, l'app empaquetee meurt au lancement sur « Library not loaded ».
+        .executableTarget(name: "Copyclipzer",
+                          dependencies: [.product(name: "Sparkle", package: "Sparkle")],
+                          path: "Sources",
+                          resources: [.process("Resources")],
+                          linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath",
+                                                         "-Xlinker", "@executable_path/../Frameworks"])]),
         .executableTarget(name: "CopyclipzerTests", path: "Tests/CopyclipzerTests"),
         // Harnais de capture. Une app qui dessine SES PROPRES vues dans une image ne
         // demande AUCUNE permission : c'est du dessin hors écran, pas de la capture

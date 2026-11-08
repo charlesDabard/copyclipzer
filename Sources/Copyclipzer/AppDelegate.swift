@@ -52,12 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu ne peut pas accueillir un stepper ni un enregistreur de raccourci.
     private let taillesProposees = [100, 250, 500, 1000, 2000, 5000]
     private let retentionsProposees = [0, 7, 14, 30, 90]
-    private let raccourcisProposes: [(libelle: String, raccourci: RaccourciGlobal)] = [
-        ("⌥⌘V", RaccourciGlobal(keycode: 9, option: true, commande: true, majuscule: false, controle: false)),
-        ("⌃⌘Espace", RaccourciGlobal(keycode: 49, option: false, commande: true, majuscule: false, controle: true)),
-        ("⌥⌘C", RaccourciGlobal(keycode: 8, option: true, commande: true, majuscule: false, controle: false)),
-        ("⌃⌥⌘V", RaccourciGlobal(keycode: 9, option: true, commande: true, majuscule: false, controle: true)),
-    ]
+    /// La fenêtre de choix du raccourci d'ouverture, imposée tant qu'aucun n'est choisi.
+    private let fenetreRaccourci = FenetreRaccourci()
+    /// Sparkle. Créé au lancement, gardé vivant ici comme le reste des dépendances.
+    private var miseAJour: MiseAJour!
 
     /// UN seul panneau d'aperçu pour le geste Cmd maintenu. Voir `ApercuPanel`.
     private let apercu = ApercuPanel()
@@ -193,8 +191,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appliquerReglages()
         rattraperLesVignettes()
         rattraperLOCR()
-        verifierLesMisesAJour()
+        demarrerLesMisesAJour()
         surveillerLaSaisieSecurisee()
+        exigerUnRaccourci()
+    }
+
+    /// Le raccourci qui agit, relu par le tap à chaque événement. Voir `raccourciEnVigueur`.
+    private var raccourciEnVigueurMaintenant: RaccourciDOuverture? {
+        raccourciEnVigueur(choix: reglages.raccourci, choixEnCours: fenetreRaccourci.estOuverte)
+    }
+
+    /// Le choix du raccourci est obligatoire (demandé le 2026-11-08) : tant que les
+    /// réglages n'en portent aucun, la fenêtre s'ouvre à chaque lancement et ne se ferme
+    /// pas sans lui. Le choix validé s'applique aussitôt, le tap le relit à chaque frappe.
+    private func exigerUnRaccourci() {
+        fenetreRaccourci.onChoisi = { [weak self] choix in
+            self?.reglages.raccourci = choix
+            self?.rafraichirLesReglagesDuMenu()
+        }
+        if reglages.raccourci == nil {
+            fenetreRaccourci.afficher(actuel: nil)
+        }
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -247,15 +264,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
-    /// Au lancement, demande à GitHub s'il existe une version plus récente et, le cas
-    /// échéant, allume la pastille du panneau. Silencieux en cas d'absence de réseau ou de
-    /// release : le check ne doit jamais déranger ni bloquer. Ne télécharge aucun binaire.
-    private func verifierLesMisesAJour() {
-        VerificateurMaJ.verifier { [weak self] version in
-            if let version {
-                journal.info("maj", "version \(version) disponible")
-            }
+    /// Démarre Sparkle, qui vérifie aussitôt puis toutes les six heures
+    /// (`SUScheduledCheckInterval`). Son état allume la pastille du panneau : version
+    /// disponible, ou déjà téléchargée et prête à installer.
+    private func demarrerLesMisesAJour() {
+        miseAJour = MiseAJour()
+        miseAJour.onEtat = { [weak self] version, prete in
             self?.rechercheModel.majDisponible = version
+            self?.rechercheModel.majPrete = prete
         }
     }
 
@@ -310,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // (demandé le 2026-11-02). Renvoyé hors du callback pour la même raison que le
             // raccourci global, et coupé par le réglage.
             onAccordFnMaj: { [weak self] in
-                guard let self, self.reglages.fnMajOuvre else { return }
+                guard let self, self.raccourciEnVigueurMaintenant?.estAccordFnMaj == true else { return }
                 journal.info("raccourci", "fn+Maj : bascule du panneau")
                 DispatchQueue.main.async { self.recherchePanel.basculer() }
             },
@@ -319,8 +335,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // épingle. Le repli `.inactif` couvre le seul cas où `self` est parti.
             etatDuGeste: { [weak self] in self?.machine.etat ?? .inactif },
             // Le raccourci vivant, relu comme l'état : changer le réglage prend effet sans
-            // relancer le tap. Le repli `.defaut` (⌥⌘V) couvre le seul cas où `self` est parti.
-            raccourciGlobal: { [weak self] in self?.reglages.raccourciOuverture ?? .defaut }
+            // relancer le tap. nil quand aucune combinaison n'agit : fn+Maj choisi, choix
+            // pas encore fait, ou fenêtre de choix ouverte.
+            raccourciGlobal: { [weak self] in self?.raccourciEnVigueurMaintenant?.combinaison }
         )
         // `EventTap.start()` échoue si l'accessibilité n'est pas accordée : le geste Cmd ne
         // marche alors pas, mais le reste de l'application (capture, panneau) tourne.
@@ -673,10 +690,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.filtrer(self?.rechercheModel.requete ?? "")
             }
         }
-        rechercheModel.onOuvrirMaj = {
-            if let url = URL(string: "https://github.com/charlesDabard/copyclipzer/releases/latest") {
-                NSWorkspace.shared.open(url)
-            }
+        rechercheModel.onOuvrirMaj = { [weak self] in
+            self?.recherchePanel.masquer()
+            self?.miseAJour.agir()
+        }
+        rechercheModel.onVerifierMaj = { [weak self] in
+            self?.recherchePanel.masquer()
+            self?.miseAJour.verifierMaintenant()
+        }
+        rechercheModel.onChoisirModeMaj = { [weak self] index in
+            guard let self, let mode = MiseAJour.Mode(rawValue: index) else { return }
+            self.miseAJour.mode = mode
+            self.rechercheModel.modeMaj = mode.rawValue
+        }
+        rechercheModel.onChangerRaccourci = { [weak self] in
+            guard let self else { return }
+            self.recherchePanel.masquer()
+            self.fenetreRaccourci.afficher(actuel: self.reglages.raccourci)
         }
         rechercheModel.onBasculerDemarrage = { [weak self] in
             LoginItem.basculer()
@@ -751,7 +781,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func brancherLesReglagesDuMenu() {
         rechercheModel.taillesPossibles = taillesProposees
         rechercheModel.retentionsPossibles = retentionsProposees
-        rechercheModel.raccourcisLibelles = raccourcisProposes.map(\.libelle)
 
         // Chaque action écrit dans `Reglages` ET reflète aussitôt la valeur dans le modèle,
         // pour que la coche du menu bouge tout de suite et non seulement à la réouverture.
@@ -765,16 +794,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.reglages.retentionJours = valeur
             self?.rechercheModel.retentionJours = valeur
         }
+        // Un seul raccourci à la fois : en choisir un remplace le précédent, fn+Maj compris.
         rechercheModel.onChoisirRaccourci = { [weak self] index in
-            guard let self, self.raccourcisProposes.indices.contains(index) else { return }
-            self.reglages.raccourciOuverture = self.raccourcisProposes[index].raccourci
-            self.rechercheModel.raccourciActif = index
-        }
-        rechercheModel.onBasculerFnMaj = { [weak self] in
             guard let self else { return }
-            self.reglages.fnMajOuvre.toggle()
-            self.rechercheModel.fnMajOuvre = self.reglages.fnMajOuvre
-            journal.info("reglages", "fn+Maj ouvre le panneau : \(self.reglages.fnMajOuvre ? "oui" : "non")")
+            let options = optionsDuMenu(choix: self.reglages.raccourci)
+            guard options.indices.contains(index) else { return }
+            self.reglages.raccourci = options[index]
+            self.rechercheModel.raccourciActif = index
+            journal.info("reglages", "raccourci d'ouverture : \(options[index].libelle)")
         }
         rechercheModel.onBasculerApp = { [weak self] identifiant in
             guard let self else { return }
@@ -793,10 +820,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rafraichirLesReglagesDuMenu() {
         rechercheModel.tailleHistorique = reglages.tailleHistorique
         rechercheModel.retentionJours = reglages.retentionJours
-        rechercheModel.raccourciActif =
-            raccourcisProposes.firstIndex { $0.raccourci == reglages.raccourciOuverture } ?? -1
+        let options = optionsDuMenu(choix: reglages.raccourci)
+        rechercheModel.raccourcisLibelles = options.map(\.libelle)
+        rechercheModel.raccourciActif = reglages.raccourci.flatMap { options.firstIndex(of: $0) } ?? -1
         rechercheModel.appsExclues = Set(reglages.appsExclues)
-        rechercheModel.fnMajOuvre = reglages.fnMajOuvre
+        rechercheModel.modeMaj = miseAJour?.mode.rawValue ?? 0
 
         var vus = Set<String>()
         var apps: [AppExcluable] = []
@@ -816,7 +844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func appliquerReglages() {
         capture.definirBundlesExclus(Set(reglages.appsExclues))
         journal.info("reglages", "taille \(reglages.tailleHistorique), rétention \(reglages.retentionJours) j, "
-            + "\(reglages.appsExclues.count) app(s) exclue(s), raccourci code \(reglages.raccourciOuverture.keycode)")
+            + "\(reglages.appsExclues.count) app(s) exclue(s), raccourci \(reglages.raccourci?.libelle ?? "non choisi")")
         journal.essayer("store", "purge par le nombre") { try store.purge(keeping: reglages.tailleHistorique) }
         // Rétention par le temps. 0 désactive : on n'appelle pas `purgerAvant` du tout,
         // sinon un seuil calculé sur 0 jour emporterait tout l'historique non épinglé.

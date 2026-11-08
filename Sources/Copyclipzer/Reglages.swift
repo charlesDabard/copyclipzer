@@ -18,7 +18,8 @@ final class Reglages: ObservableObject {
         static let raccourciCommande = "raccourciCommande"
         static let raccourciMajuscule = "raccourciMajuscule"
         static let raccourciControle = "raccourciControle"
-        static let fnMajOuvre = "fnMajOuvre"
+        static let raccourciMode = "raccourciMode"
+        static let raccourciTouche = "raccourciTouche"
     }
 
     @Published var tailleHistorique: Int {
@@ -38,20 +39,17 @@ final class Reglages: ObservableObject {
         didSet { defaults.set(appsExclues, forKey: Cle.appsExclues) }
     }
 
-    /// Le raccourci global qui ouvre le panneau de recherche. Persisté champ par champ
-    /// dans `UserDefaults`, ce qui évite tout encodage et tout décodeur faillible : si
-    /// une clé manque, c'est que rien n'a jamais été enregistré, et le défaut ⌥⌘V
-    /// s'applique. Le tap le relit à chaque frappe via une closure, donc un changement
-    /// ici prend effet immédiatement, sans relancer quoi que ce soit.
-    @Published var raccourciOuverture: RaccourciGlobal {
+    /// Le moyen d'ouvrir le panneau, ou nil tant que l'utilisateur n'a pas choisi. nil
+    /// n'est pas un défaut silencieux : c'est ce qui fait apparaître la fenêtre de choix au
+    /// lancement, et aucun raccourci n'est actif tant qu'elle n'a pas été validée (voir
+    /// `RaccourciDOuverture`). Une installation antérieure au 2026-11-08 n'a pas la clé
+    /// `raccourciMode` : elle repasse donc par le choix une fois, comme demandé.
+    ///
+    /// Persisté champ par champ dans `UserDefaults`, sans encodage ni décodeur faillible.
+    /// Le tap le relit à chaque frappe via une closure, donc un changement prend effet
+    /// immédiatement, sans relancer quoi que ce soit.
+    @Published var raccourci: RaccourciDOuverture? {
         didSet { persisterRaccourci() }
-    }
-
-    /// fn+Maj ouvre le panneau, en plus du raccourci configuré. Actif par défaut : c'est
-    /// une demande explicite (2026-11-02). Désactivable depuis le menu de l'engrenage, pour
-    /// le jour où l'accord gênerait un autre usage de la touche fn.
-    @Published var fnMajOuvre: Bool {
-        didSet { defaults.set(fnMajOuvre, forKey: Cle.fnMajOuvre) }
     }
 
     private init() {
@@ -60,28 +58,41 @@ final class Reglages: ObservableObject {
         let brutRetention = defaults.object(forKey: Cle.retention) as? Int ?? 0
         retentionJours = retentionJoursBornee(brutRetention)
         appsExclues = defaults.stringArray(forKey: Cle.appsExclues) ?? []
-        raccourciOuverture = Reglages.lireRaccourci(defaults)
-        fnMajOuvre = defaults.object(forKey: Cle.fnMajOuvre) as? Bool ?? true
+        raccourci = Reglages.lireRaccourci(defaults)
     }
 
-    /// Aucune clé présente signifie « jamais réglé », donc défaut. On teste la touche
-    /// seule : c'est le seul champ dont l'absence est univoque, les booléens pouvant
-    /// légitimement valoir `false` une fois le réglage écrit.
-    private static func lireRaccourci(_ defaults: UserDefaults) -> RaccourciGlobal {
-        guard defaults.object(forKey: Cle.raccourciKeycode) != nil else { return .defaut }
-        return RaccourciGlobal(
-            keycode: defaults.integer(forKey: Cle.raccourciKeycode),
-            option: defaults.bool(forKey: Cle.raccourciOption),
-            commande: defaults.bool(forKey: Cle.raccourciCommande),
-            majuscule: defaults.bool(forKey: Cle.raccourciMajuscule),
-            controle: defaults.bool(forKey: Cle.raccourciControle))
+    private static func lireRaccourci(_ defaults: UserDefaults) -> RaccourciDOuverture? {
+        switch defaults.string(forKey: Cle.raccourciMode) {
+        case "fnMaj":
+            return .accordFnMaj
+        case "combinaison":
+            guard defaults.object(forKey: Cle.raccourciKeycode) != nil else { return nil }
+            let combinaison = RaccourciGlobal(
+                keycode: defaults.integer(forKey: Cle.raccourciKeycode),
+                option: defaults.bool(forKey: Cle.raccourciOption),
+                commande: defaults.bool(forKey: Cle.raccourciCommande),
+                majuscule: defaults.bool(forKey: Cle.raccourciMajuscule),
+                controle: defaults.bool(forKey: Cle.raccourciControle))
+            return .combinaison(combinaison, touche: defaults.string(forKey: Cle.raccourciTouche) ?? "")
+        default:
+            return nil
+        }
     }
 
     private func persisterRaccourci() {
-        defaults.set(raccourciOuverture.keycode, forKey: Cle.raccourciKeycode)
-        defaults.set(raccourciOuverture.option, forKey: Cle.raccourciOption)
-        defaults.set(raccourciOuverture.commande, forKey: Cle.raccourciCommande)
-        defaults.set(raccourciOuverture.majuscule, forKey: Cle.raccourciMajuscule)
-        defaults.set(raccourciOuverture.controle, forKey: Cle.raccourciControle)
+        switch raccourci {
+        case nil:
+            defaults.removeObject(forKey: Cle.raccourciMode)
+        case .accordFnMaj:
+            defaults.set("fnMaj", forKey: Cle.raccourciMode)
+        case let .combinaison(r, touche):
+            defaults.set("combinaison", forKey: Cle.raccourciMode)
+            defaults.set(r.keycode, forKey: Cle.raccourciKeycode)
+            defaults.set(r.option, forKey: Cle.raccourciOption)
+            defaults.set(r.commande, forKey: Cle.raccourciCommande)
+            defaults.set(r.majuscule, forKey: Cle.raccourciMajuscule)
+            defaults.set(r.controle, forKey: Cle.raccourciControle)
+            defaults.set(touche, forKey: Cle.raccourciTouche)
+        }
     }
 }

@@ -3487,41 +3487,192 @@ check("l'assemblage branche le raccourci sur l'ouverture du panneau",
       sourceDuDelegue.contains("onRaccourciGlobal: { [weak self] in DispatchQueue.main.async { self?.recherchePanel.afficher() } }"),
       "le panneau ne s'ouvrirait jamais par le raccourci, ou s'ouvrirait DANS le callback du tap")
 check("l'assemblage donne au tap le raccourci vivant des réglages",
-      sourceDuDelegue.contains("raccourciGlobal: { [weak self] in self?.reglages.raccourciOuverture ?? .defaut }"),
+      sourceDuDelegue.contains("raccourciGlobal: { [weak self] in self?.raccourciEnVigueurMaintenant?.combinaison }"),
       "un changement de réglage ne serait pas vu avant un relancement")
 
-section("Mise à jour · comparaison de versions", attendu: 9)
+section("Raccourci d'ouverture · choix unique et obligatoire", attendu: 28)
 do {
-    // --- acceptation : une version publiée plus grande est proposée ---
-    check("une version plus récente est détectée",
-          VersionSemantique.miseAJourDisponible(installee: "1.0.0", derniere: "1.1.0"),
-          "la mise à jour ne serait pas proposée")
-    check("le préfixe v des tags GitHub est toléré",
-          VersionSemantique.miseAJourDisponible(installee: "1.0.0", derniere: "v1.0.1"),
-          "un tag vX.Y.Z ne serait jamais reconnu comme plus récent")
-    check("la comparaison est numérique, pas lexicographique : 1.10.0 > 1.2.0",
-          VersionSemantique.miseAJourDisponible(installee: "1.2.0", derniere: "1.10.0"),
-          "une comparaison de chaînes classerait 1.10.0 avant 1.2.0 et raterait la mise à jour")
-    // --- refus : ni égalité, ni régression, ni version illisible ---
-    check("une version identique ne propose rien",
-          !VersionSemantique.miseAJourDisponible(installee: "1.1.0", derniere: "1.1.0"),
-          "proposer une mise à jour vers la même version")
-    check("une version publiée plus ancienne ne propose rien",
-          !VersionSemantique.miseAJourDisponible(installee: "1.2.0", derniere: "1.1.0"),
-          "proposer une mise à jour vers une version plus vieille")
-    check("une version illisible ne propose rien (pas de mise à jour sur un doute)",
-          !VersionSemantique.miseAJourDisponible(installee: "1.0.0", derniere: "inconnu"),
-          "un tag illisible déclencherait une fausse mise à jour")
-    // --- lecture du tag_name dans la réponse de l'API GitHub ---
-    check("le tag_name est extrait de la réponse JSON",
-          VersionSemantique.tagDepuisJSON(Data(#"{"tag_name":"v2.0.0"}"#.utf8)) == "v2.0.0",
-          "le tag de la release ne serait pas lu")
-    check("un JSON sans tag_name rend nil",
-          VersionSemantique.tagDepuisJSON(Data("{}".utf8)) == nil,
-          "un objet sans tag serait pris pour une version valide")
-    check("un corps non-JSON rend nil",
-          VersionSemantique.tagDepuisJSON(Data("pas du json".utf8)) == nil,
-          "une réponse d'erreur serait prise pour un tag")
+    // Demandé le 2026-11-08 : un raccourci IMPOSÉ au premier lancement, fn+Maj proposé en
+    // premier, une combinaison libre possible, et un seul raccourci actif à la fois.
+    let opt = RaccourciGlobal(keycode: 9, option: true, commande: true, majuscule: false, controle: false)
+    let espace = RaccourciGlobal(keycode: 49, option: false, commande: true, majuscule: false, controle: true)
+    let quatre = RaccourciGlobal(keycode: 0, option: true, commande: true, majuscule: true, controle: true)
+
+    // --- les propositions ---
+    check("fn+Maj est proposé en premier",
+          RaccourciDOuverture.proposes.first == .accordFnMaj,
+          "obtenu \(RaccourciDOuverture.proposes.map(\.libelle))")
+    check("⌥⌘V reste proposé", RaccourciDOuverture.proposes.contains(.combinaison(opt, touche: "V")))
+    check("chaque proposition passe la règle des combinaisons libres",
+          RaccourciDOuverture.proposes.compactMap(\.combinaison).allSatisfy { refusDuRaccourci($0) == nil },
+          "la fenêtre proposerait une combinaison qu'elle refuserait à l'enregistrement")
+
+    // --- les libellés ---
+    check("le libellé de l'accord", RaccourciDOuverture.accordFnMaj.libelle == "fn + ⇧")
+    check("le libellé de ⌥⌘V", RaccourciDOuverture.combinaison(opt, touche: "v").libelle == "⌥⌘V",
+          "obtenu \(RaccourciDOuverture.combinaison(opt, touche: "v").libelle)")
+    check("Espace a un nom, pas un blanc",
+          RaccourciDOuverture.combinaison(espace, touche: " ").libelle == "⌃⌘Espace",
+          "obtenu \(RaccourciDOuverture.combinaison(espace, touche: " ").libelle)")
+    check("les modificateurs suivent l'ordre des menus macOS : ⌃⌥⇧⌘",
+          RaccourciDOuverture.combinaison(quatre, touche: "q").libelle == "⌃⌥⇧⌘Q",
+          "obtenu \(RaccourciDOuverture.combinaison(quatre, touche: "q").libelle)")
+    // Le keycode 12 est Q en QWERTY et A en AZERTY : le libellé suit la touche LUE.
+    check("le libellé suit la disposition, pas le keycode",
+          RaccourciDOuverture.combinaison(RaccourciGlobal(keycode: 12, option: true, commande: true,
+                                                          majuscule: false, controle: false),
+                                          touche: "a").libelle == "⌥⌘A")
+
+    // L'enregistreur affiche les modificateurs tenus en direct, avant la touche.
+    check("les modificateurs seuls s'affichent dans l'ordre ⌃⌥⇧⌘",
+          libelleDesModificateurs(option: true, commande: true, majuscule: true, controle: true) == "⌃⌥⇧⌘")
+    check("aucun modificateur tenu ne donne aucun libellé",
+          libelleDesModificateurs(option: false, commande: false, majuscule: false, controle: false).isEmpty)
+
+    // --- l'égalité et ce que le tap compare ---
+    check("l'égalité ignore la touche lue",
+          RaccourciDOuverture.combinaison(opt, touche: "v") == .combinaison(opt, touche: "V"),
+          "un ⌥⌘V enregistré à la main ne cocherait pas ⌥⌘V dans le menu")
+    check("deux combinaisons différentes ne sont pas égales",
+          RaccourciDOuverture.combinaison(opt, touche: "V") != .combinaison(espace, touche: " "))
+    check("l'accord n'a aucune combinaison à comparer", RaccourciDOuverture.accordFnMaj.combinaison == nil)
+    check("une combinaison rend sa combinaison au tap",
+          RaccourciDOuverture.combinaison(espace, touche: " ").combinaison == espace)
+
+    // --- rien n'agit pendant le choix, ni avant lui ---
+    check("aucun raccourci n'agit tant que rien n'est choisi",
+          raccourciEnVigueur(choix: nil, choixEnCours: false) == nil)
+    check("aucun raccourci n'agit pendant que la fenêtre de choix est ouverte",
+          raccourciEnVigueur(choix: .combinaison(opt, touche: "V"), choixEnCours: true) == nil,
+          "enregistrer ⌥⌘V alors qu'il est actif : le tap l'avalerait avant la fenêtre")
+    check("le choix agit une fois la fenêtre fermée",
+          raccourciEnVigueur(choix: .accordFnMaj, choixEnCours: false) == .accordFnMaj)
+
+    // --- la règle des combinaisons libres, refus ET acceptations ---
+    check("⌘V seul est refusé : il appartient aux applications",
+          refusDuRaccourci(RaccourciGlobal(keycode: 9, option: false, commande: true, majuscule: false, controle: false))
+              == .unSeulModificateur)
+    check("⇧A est refusé : il écrit un A",
+          refusDuRaccourci(RaccourciGlobal(keycode: 0, option: false, commande: false, majuscule: true, controle: false))
+              == .sansCmdNiCtrl)
+    check("⌥⇧E est refusé : il écrit un symbole",
+          refusDuRaccourci(RaccourciGlobal(keycode: 14, option: true, commande: false, majuscule: true, controle: false))
+              == .sansCmdNiCtrl)
+    check("une touche de modificateur n'est pas une touche",
+          refusDuRaccourci(RaccourciGlobal(keycode: 56, option: false, commande: true, majuscule: false, controle: true))
+              == .toucheModificatrice)
+    check("⌃⇧K est accepté", refusDuRaccourci(RaccourciGlobal(keycode: 40, option: false, commande: false,
+                                                                 majuscule: true, controle: true)) == nil)
+    check("⌥⌘V est accepté", refusDuRaccourci(opt) == nil)
+
+    // --- le menu de l'engrenage ---
+    check("sans raccourci personnalisé, le menu montre les propositions",
+          optionsDuMenu(choix: .accordFnMaj) == RaccourciDOuverture.proposes
+              && optionsDuMenu(choix: nil) == RaccourciDOuverture.proposes)
+    let perso = RaccourciDOuverture.combinaison(RaccourciGlobal(keycode: 40, option: false, commande: false,
+                                                                majuscule: true, controle: true), touche: "k")
+    check("un raccourci personnalisé s'ajoute au menu, pour y être coché",
+          optionsDuMenu(choix: perso).last == perso
+              && optionsDuMenu(choix: perso).count == RaccourciDOuverture.proposes.count + 1)
+
+    // --- le branchement, lu dans le texte : tap et assemblage ne sont pas testables ---
+    check("le tap ne compare rien quand aucune combinaison n'agit",
+          sourceDuTap.contains("if typePur == .keyDown, let raccourci = raccourciGlobal(),"),
+          "le tap comparerait encore un raccourci par défaut")
+    check("fn+Maj n'agit que s'il est LE raccourci choisi",
+          sourceDuDelegue.contains("guard let self, self.raccourciEnVigueurMaintenant?.estAccordFnMaj == true else { return }"),
+          "fn+Maj et ⌥⌘V cumuleraient, comme avant le 2026-11-08")
+    check("l'assemblage coupe tout raccourci pendant le choix",
+          sourceDuDelegue.contains("raccourciEnVigueur(choix: reglages.raccourci, choixEnCours: fenetreRaccourci.estOuverte)"))
+}
+
+section("Raccourci d'ouverture · l'enregistreur voit fn et garde l'affichage", attendu: 10)
+do {
+    // Signalé le 2026-11-08 : fn+Maj s'affichait « ⇧ », ne s'enregistrait pas, et
+    // l'affichage s'effaçait au relâchement.
+    let fnMaj = Modificateurs(fn: true, majuscule: true)
+    check("fn+Maj s'affiche comme l'accord proposé", fnMaj.libelle == RaccourciDOuverture.accordFnMaj.libelle,
+          "obtenu \(fnMaj.libelle)")
+    check("fn seul s'affiche « fn »", Modificateurs(fn: true).libelle == "fn")
+
+    var e = EnregistreurDAccord()
+    _ = e.modificateurs(Modificateurs(fn: true))
+    _ = e.modificateurs(fnMaj)
+    // On relâche fn d'abord : le pic garde les deux.
+    let partiel = e.modificateurs(Modificateurs(majuscule: true))
+    check("un relâchement partiel ne rend rien", partiel == nil)
+    check("le pic garde fn après son relâchement", e.pic == fnMaj, "obtenu \(e.pic.libelle)")
+    let rendu = e.modificateurs(.aucun)
+    check("le relâchement complet rend l'accord tenu", rendu == fnMaj, "obtenu \(String(describing: rendu))")
+    check("fn+Maj enregistré devient l'accord du tap", rendu.flatMap(choixPourAccord) == .accordFnMaj)
+
+    var avecTouche = EnregistreurDAccord()
+    _ = avecTouche.modificateurs(Modificateurs(commande: true, majuscule: true))
+    avecTouche.frappe()
+    check("une touche frappée pendant l'accord en fait une combinaison, pas un accord",
+          avecTouche.modificateurs(.aucun) == nil)
+    check("l'enregistreur repart à zéro après le relâchement", avecTouche.pic == .aucun && !avecTouche.touchee)
+
+    // Seul fn+Maj est lu par le tap : un autre accord serait enregistré sans effet.
+    check("un autre accord sans touche est refusé",
+          choixPourAccord(Modificateurs(majuscule: true, controle: true)) == nil)
+    let fenetre = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Copyclipzer/FenetreRaccourci.swift"),
+                               encoding: .utf8)) ?? ""
+    check("la fenêtre lit le drapeau fn des événements",
+          fenetre.contains("Modificateurs(fn: d.contains(.function)"))
+}
+
+section("Raccourci d'ouverture · le choix est imposé", attendu: 5)
+do {
+    let fenetre = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Copyclipzer/FenetreRaccourci.swift"),
+                               encoding: .utf8)) ?? ""
+    let reglages = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Copyclipzer/Reglages.swift"),
+                                encoding: .utf8)) ?? ""
+    check("le lancement exige un raccourci",
+          sourceDuDelegue.contains("        exigerUnRaccourci()\n    }")
+              && sourceDuDelegue.contains("if reglages.raccourci == nil {\n            fenetreRaccourci.afficher(actuel: nil)"),
+          "l'app démarrerait sans raccourci, et sans le dire")
+    check("au premier choix, la fenêtre n'a pas de bouton de fermeture",
+          fenetre.contains("fenetre.styleMask = model.obligatoire ? [.titled] : [.titled, .closable]"))
+    check("au premier choix, la fenêtre refuse de se fermer",
+          fenetre.contains("func windowShouldClose(_: NSWindow) -> Bool {\n        !model.obligatoire"))
+    check("une combinaison enregistrée passe par la règle pure",
+          fenetre.contains("if let refus = refusDuRaccourci(combinaison)"))
+    // Une installation antérieure n'a pas `raccourciMode` : elle doit repasser par le choix.
+    check("un réglage sans mode se lit « jamais choisi »",
+          reglages.contains("        default:\n            return nil"))
+}
+
+section("Mise à jour · Sparkle branché", attendu: 8)
+do {
+    func lire(_ chemin: String) -> String {
+        (try? String(contentsOf: racineDuPaquet.appendingPathComponent(chemin), encoding: .utf8)) ?? ""
+    }
+    let plist = (try? PropertyListSerialization.propertyList(
+        from: Data(contentsOf: racineDuPaquet.appendingPathComponent("Resources/Info.plist")),
+        format: nil)) as? [String: Any] ?? [:]
+    let cle = plist["SUPublicEDKey"] as? String ?? ""
+    check("la clé publique EdDSA est déclarée (32 octets)",
+          Data(base64Encoded: cle)?.count == 32, "obtenu « \(cle) »")
+    check("le flux est l'appcast de la dernière release GitHub",
+          plist["SUFeedURL"] as? String == "https://github.com/charlesDabard/copyclipzer/releases/latest/download/appcast.xml")
+    check("vérification et installation automatiques par défaut",
+          plist["SUEnableAutomaticChecks"] as? Bool == true && plist["SUAutomaticallyUpdate"] as? Bool == true)
+    // Sparkle compare `sparkle:version` à CFBundleVersion, pas au numéro affiché. Un
+    // « 1.0.2 » comparé au « 2 » installé passerait pour plus VIEUX : aucune mise à jour.
+    check("CFBundleVersion est un entier, comme le veut la comparaison de Sparkle",
+          (plist["CFBundleVersion"] as? String).flatMap { Int($0) } != nil,
+          "obtenu \(String(describing: plist["CFBundleVersion"]))")
+    check("le lancement démarre Sparkle", sourceDuDelegue.contains("        demarrerLesMisesAJour()\n"))
+    check("une app de barre des menus déclare les rappels doux",
+          lire("Sources/MaJ/MiseAJour.swift").filter { !$0.isWhitespace }
+              .contains("varsupportsGentleScheduledUpdateReminders:Bool{true}"),
+          "Sparkle jetterait sa fenêtre au milieu de la frappe")
+    check("build.sh embarque Sparkle.framework dans Contents/Frameworks",
+          lire("build.sh").contains("Sparkle.framework\" \"$FRAMEWORKS_DIR/\""),
+          "l'app empaquetée mourrait au lancement sur « Library not loaded »")
+    check("le binaire cherche ses frameworks dans Contents/Frameworks",
+          lire("Package.swift").contains("@executable_path/../Frameworks"))
 }
 
 // MARK: - Audit du 2026-10-17
@@ -4110,8 +4261,8 @@ do {
     check("le tap déclenche le rappel de l'accord", sourceDuTap.contains("onAccordFnMaj?()"))
     check("l'assemblage branche fn+Maj sur le panneau, si le réglage le permet",
           sourceDuDelegue.contains("onAccordFnMaj: { [weak self] in")
-              && sourceDuDelegue.contains("self.reglages.fnMajOuvre"),
-          "l'accord serait détecté sans rien ouvrir, ou malgré le réglage")
+              && sourceDuDelegue.contains("self.raccourciEnVigueurMaintenant?.estAccordFnMaj == true"),
+          "l'accord serait détecté sans rien ouvrir, ou malgré le choix")
     // Demandé le 2026-11-02, après le premier essai : « quand je réappuie sur fn+Maj, ça
     // doit fermer ». Bascule, comme le clic sur l'icône, et non ouverture seule.
     check("fn+Maj bascule le panneau : un second accord le ferme",

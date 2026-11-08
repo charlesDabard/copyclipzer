@@ -8,6 +8,7 @@ APP_BUNDLE="$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 
 echo "→ Compilation en release..."
 swift build -c release
@@ -16,7 +17,7 @@ echo "→ Nettoyage du bundle précédent..."
 rm -rf "$APP_BUNDLE"
 
 echo "→ Montage du bundle .app..."
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 cp Resources/Info.plist "$CONTENTS/Info.plist"
 
@@ -27,7 +28,13 @@ cp Resources/Info.plist "$CONTENTS/Info.plist"
 # NSLocalizedString. Le nom vient du paquet et de la cible (voir Localisation.swift).
 cp -R "$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle" "$RESOURCES_DIR/"
 
-echo "→ Signature ad-hoc..."
+# Sparkle, le moteur de mise a jour. Le binaire le cherche dans Contents/Frameworks (rpath
+# pose par Package.swift) : sans cette copie, l'app meurt au lancement sur « Library not
+# loaded ». `cp -R` garde les liens symboliques internes du framework (Versions/Current),
+# que la signature exige intacts.
+cp -R "$BUILD_DIR/Sparkle.framework" "$FRAMEWORKS_DIR/"
+
+echo "→ Signature..."
 # Identite STABLE, et non plus ad-hoc. Une signature ad-hoc change d'empreinte a
 # chaque construction, et macOS invalide alors l'autorisation Accessibilite SANS
 # decocher la case : il fallait retirer puis rajouter l'app apres chaque build.
