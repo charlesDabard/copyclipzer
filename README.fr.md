@@ -1,10 +1,3 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="screenshots/readme-search-dark.png">
-    <img src="screenshots/readme-search-light.png" alt="Le panneau de recherche de Copyclipzer" width="460">
-  </picture>
-</p>
-
 <h1 align="center">Copyclipzer</h1>
 
 <p align="center"><b>L'historique de votre presse-papiers, sur votre Mac et nulle part ailleurs.</b></p>
@@ -27,6 +20,13 @@ Un gestionnaire de presse-papiers lit tout ce que vous copiez : mots de passe, j
 - **Local.** L'historique tient dans un fichier SQLite sur votre Mac. Rien n'est synchronisé ni envoyé.
 - **Privé.** Un contenu que les applications marquent comme confidentiel n'est jamais enregistré : gestionnaires de mots de passe, données temporaires ou générées. Toute application peut être exclue.
 - **Rapide.** Pensé pour le clavier. L'historique est à un raccourci, depuis n'importe quelle application.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="screenshots/readme-search-dark.png">
+    <img src="screenshots/readme-search-light.png" alt="Le panneau de recherche de Copyclipzer" width="460">
+  </picture>
+</p>
 
 ## Utilisation
 

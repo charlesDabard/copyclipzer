@@ -1,10 +1,3 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="screenshots/readme-search-dark.png">
-    <img src="screenshots/readme-search-light.png" alt="The Copyclipzer search panel" width="460">
-  </picture>
-</p>
-
 <h1 align="center">Copyclipzer</h1>
 
 <p align="center"><b>Your clipboard history, on your Mac and nowhere else.</b></p>
@@ -27,6 +20,13 @@ A clipboard manager reads everything you copy: passwords, tokens, private messag
 - **Local.** The history lives in one SQLite file on your Mac. Nothing is synced or uploaded.
 - **Private.** Content that apps mark as confidential is never recorded: password managers, temporary and generated data. You can exclude any app.
 - **Fast.** Built for the keyboard. Your history is one shortcut away, from any app.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="screenshots/readme-search-dark.png">
+    <img src="screenshots/readme-search-light.png" alt="The Copyclipzer search panel" width="460">
+  </picture>
+</p>
 
 ## Use it
 
