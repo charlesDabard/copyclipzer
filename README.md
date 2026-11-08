@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-<p align="center"><a href="README.fr.md">Lire en français</a></p>
+<p align="center"><a href="README.fr.md">🇫🇷 Lire en français 🇫🇷</a></p>
 
 https://github.com/user-attachments/assets/39d4fe49-1a48-4556-82bd-c78610a06617
 
