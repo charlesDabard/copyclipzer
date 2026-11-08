@@ -18,6 +18,11 @@
 
 <p align="center"><a href="README.md">Read in English</a></p>
 
+<p align="center">
+  <a href="docs/demo-fr.mp4"><img src="screenshots/demo-fr.jpg" alt="Voir la démo de Copyclipzer (19 s)" width="720"></a>
+  <br><sub>▶ La démo en 19 secondes</sub>
+</p>
+
 Un gestionnaire de presse-papiers lit tout ce que vous copiez : mots de passe, jetons, messages privés. Il doit garder cet historique sur votre machine et ne le confier à personne. Copyclipzer est construit sur cette règle. Pas de compte, pas de cloud, pas de télémétrie. Le code est ouvert : la règle se vérifie.
 
 ## Local, privé, rapide

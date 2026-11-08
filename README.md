@@ -16,7 +16,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-<p align="center"><a href="README.fr.md">Lire en français</a></p>
+<p align="center"><a href="README.fr.md">Lire en français</a> · <a href="docs/demo-fr.mp4">Watch the 19 s demo (in French)</a></p>
 
 A clipboard manager reads everything you copy: passwords, tokens, private messages. It should keep that history on your machine and tell no one. Copyclipzer is built on that rule. No account, no cloud, no telemetry. The code is open, so the rule can be checked.
 
