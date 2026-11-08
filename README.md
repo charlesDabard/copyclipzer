@@ -8,7 +8,7 @@ Un gestionnaire de presse-papiers pour macOS, rapide et discret. Il garde l'hist
 
 - **Historique complet** : texte, texte riche, fichiers et images sont capturés et conservés.
 - **Panneau de recherche** : un clic sur l'icône de la barre des menus ouvre une recherche qui filtre l'historique **à la frappe**. Navigation à la souris ou aux flèches, avec un aperçu de l'entrée pointée.
-- **Geste Cmd** : maintenez Cmd et appuyez sur V pour parcourir les dernières entrées, relâchez pour coller. Un raccourci global (⌥⌘V) ouvre aussi le panneau depuis n'importe où.
+- **Geste Cmd** : maintenez Cmd et appuyez sur V pour parcourir les dernières entrées, relâchez pour coller. Un raccourci global, choisi au premier lancement (fn + ⇧ proposé en premier, ou une combinaison au choix), ouvre aussi le panneau depuis n'importe où ; il se change dans le menu ⚙︎ du panneau.
 - **Recherche dans les images** : le texte des captures d'écran est reconnu (OCR) et devient cherchable.
 - **Épinglez** les entrées importantes pour les garder en tête de liste.
 - **Collez en texte brut**, sans la mise en forme d'origine.

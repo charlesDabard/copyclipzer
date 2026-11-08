@@ -60,8 +60,8 @@
 /* Menu reglages : titre du sous-menu du raccourci d'ouverture. */
 "reglages.section.raccourci" = "Raccourci d'ouverture";
 
-/* Menu reglages : case qui active l'ouverture du panneau par l'accord fn+Maj, en plus du raccourci choisi. */
-"reglages.raccourci.fnmaj" = "fn + Maj ouvre et ferme aussi le panneau";
+/* Menu reglages : rouvre la fenetre de choix du raccourci (combinaison libre comprise). */
+"reglages.raccourci.changer" = "Choisir un autre raccourci…";
 
 /* Reglages : note sur les entrees epinglees. */
 "reglages.historique.note" = "Les entrées épinglées sont toujours conservées, quel que soit ce nombre.";
@@ -109,4 +109,34 @@
 "maj.disponible" = "Mise à jour %@";
 
 /* Info-bulle de la pastille de mise a jour. */
-"maj.aide" = "Ouvrir la page des versions sur GitHub";
+"maj.aide" = "Voir les nouveautés et installer";
+
+/* Pastille : la mise a jour est telechargee et verifiee. %@ est le numero de version. */
+"maj.prete" = "Installer la %@ et relancer";
+
+/* Info-bulle de la pastille quand la mise a jour est prete. */
+"maj.aide_prete" = "Sinon, elle s'installera à la prochaine fermeture de Copyclipzer";
+
+/* Menu reglages : sous-menu du mode de mise a jour. */
+"reglages.section.maj" = "Mises à jour";
+"reglages.maj.automatique" = "Installer automatiquement";
+"reglages.maj.demander" = "Demander avant d'installer";
+"reglages.maj.desactive" = "Ne pas vérifier";
+"reglages.maj.verifier" = "Rechercher les mises à jour…";
+/* %@ est le numero de version installe. */
+"reglages.maj.version" = "Copyclipzer %@";
+
+/* Fenetre de choix du raccourci d'ouverture, imposee au premier lancement. */
+"choix_raccourci.titre" = "Comment ouvrir Copyclipzer ?";
+"choix_raccourci.explication" = "Choisis le raccourci qui ouvrira ton historique depuis n'importe quelle application. Un seul raccourci est actif à la fois.";
+"choix_raccourci.recommande" = "Recommandé";
+"choix_raccourci.fnmaj_aide" = "appuie sur fn et Maj, puis relâche";
+"choix_raccourci.autre" = "Autre combinaison";
+"choix_raccourci.enregistrer" = "Cliquer pour enregistrer";
+"choix_raccourci.tape" = "Tape ta combinaison…";
+"choix_raccourci.valider" = "Valider";
+"choix_raccourci.modifiable" = "Modifiable ensuite dans le menu ⚙︎ du panneau.";
+"choix_raccourci.refus.modificatrice" = "Ajoute une touche à tes modificateurs.";
+"choix_raccourci.refus.sans_cmd_ctrl" = "Il faut ⌘ ou ⌃ : sans eux, la combinaison écrirait un caractère.";
+"choix_raccourci.refus.un_seul" = "Ajoute un second modificateur (⌥, ⇧, ⌃ ou ⌘) : seul, il appartient aux applications.";
+"choix_raccourci.refus.accord" = "Sans touche, seul fn + ⇧ fonctionne. Ajoute une touche à tes modificateurs.";

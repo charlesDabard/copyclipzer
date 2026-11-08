@@ -57,8 +57,8 @@
 /* Settings menu: open-shortcut submenu title. */
 "reglages.section.raccourci" = "Open shortcut";
 
-/* Settings menu: checkbox that lets the fn+Shift chord open the panel, on top of the chosen shortcut. */
-"reglages.raccourci.fnmaj" = "fn + Shift also opens and closes the panel";
+/* Settings menu: reopens the shortcut picker (custom combination included). */
+"reglages.raccourci.changer" = "Choose another shortcut…";
 
 /* Settings: number of kept entries. The %d is replaced by a number. */
 "reglages.historique.garder" = "Keep the last %d entries";
@@ -109,4 +109,34 @@
 "maj.disponible" = "Update %@";
 
 /* Tooltip of the update badge. */
-"maj.aide" = "Open the releases page on GitHub";
+"maj.aide" = "See what's new and install";
+
+/* Badge: the update is downloaded and verified. %@ is the version number. */
+"maj.prete" = "Install %@ and relaunch";
+
+/* Badge tooltip when the update is ready. */
+"maj.aide_prete" = "Otherwise it installs the next time Copyclipzer quits";
+
+/* Settings menu: update mode submenu. */
+"reglages.section.maj" = "Updates";
+"reglages.maj.automatique" = "Install automatically";
+"reglages.maj.demander" = "Ask before installing";
+"reglages.maj.desactive" = "Don't check";
+"reglages.maj.verifier" = "Check for Updates…";
+/* %@ is the installed version number. */
+"reglages.maj.version" = "Copyclipzer %@";
+
+/* Open-shortcut picker, required on first launch. */
+"choix_raccourci.titre" = "How do you want to open Copyclipzer?";
+"choix_raccourci.explication" = "Pick the shortcut that opens your history from any app. Only one shortcut is active at a time.";
+"choix_raccourci.recommande" = "Recommended";
+"choix_raccourci.fnmaj_aide" = "press fn and Shift, then release";
+"choix_raccourci.autre" = "Other combination";
+"choix_raccourci.enregistrer" = "Click to record";
+"choix_raccourci.tape" = "Type your combination…";
+"choix_raccourci.valider" = "Done";
+"choix_raccourci.modifiable" = "You can change it later in the panel's ⚙︎ menu.";
+"choix_raccourci.refus.modificatrice" = "Add a key to your modifiers.";
+"choix_raccourci.refus.sans_cmd_ctrl" = "Use ⌘ or ⌃: without them the combination would type a character.";
+"choix_raccourci.refus.un_seul" = "Add a second modifier (⌥, ⇧, ⌃ or ⌘): on its own it belongs to apps.";
+"choix_raccourci.refus.accord" = "Without a key, only fn + ⇧ works. Add a key to your modifiers.";

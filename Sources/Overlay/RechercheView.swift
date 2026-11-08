@@ -15,10 +15,13 @@ final class RechercheModel: ObservableObject {
     @Published var requete: String = ""
     @Published var lignes: [LigneDeMenu] = []
     @Published var index: Int = 0
-    /// Le numéro de la dernière version publiée quand elle est plus récente que
-    /// l'installée, nil sinon. Renseigné par le check de mise à jour au lancement ;
-    /// le pied affiche une pastille discrète tant qu'il est non nil.
+    /// Le numéro de la version que Sparkle a trouvée, nil sinon. Le pied affiche une
+    /// pastille discrète tant qu'il est non nil.
     @Published var majDisponible: String?
+    /// La version est déjà téléchargée et vérifiée : un clic l'installe et relance.
+    @Published var majPrete = false
+    /// Le mode de mise à jour, index de `MiseAJour.Mode` : automatique, demander, désactivé.
+    @Published var modeMaj = 0
 
     /// Reflète l'état réel de l'ouverture au démarrage (élément d'ouverture de session),
     /// pour la bascule du menu de l'engrenage. Rafraîchi à chaque ouverture du panneau.
@@ -32,11 +35,10 @@ final class RechercheModel: ObservableObject {
     /// Valeurs de rétention proposées, en jours ; 0 = désactivée.
     @Published var retentionsPossibles: [Int] = []
     @Published var retentionJours: Int = 0
-    /// Libellés des raccourcis prédéfinis et l'index de celui qui est actif.
+    /// Libellés des raccourcis d'ouverture (fn+Maj en tête) et l'index de celui qui est
+    /// actif. Un seul agit à la fois.
     @Published var raccourcisLibelles: [String] = []
     @Published var raccourciActif: Int = 0
-    /// fn+Maj ouvre aussi le panneau, reflet de `Reglages.fnMajOuvre`.
-    @Published var fnMajOuvre: Bool = true
     /// Les apps proposées à l'exclusion (en cours d'exécution ou déjà exclues) : identifiant
     /// de bundle et nom lisible. `appsExclues` porte les identifiants cochés.
     @Published var appsExcluables: [AppExcluable] = []
@@ -45,7 +47,9 @@ final class RechercheModel: ObservableObject {
     var onChoisirTaille: ((Int) -> Void)?
     var onChoisirRetention: ((Int) -> Void)?
     var onChoisirRaccourci: ((Int) -> Void)?
-    var onBasculerFnMaj: (() -> Void)?
+    var onChangerRaccourci: (() -> Void)?
+    var onChoisirModeMaj: ((Int) -> Void)?
+    var onVerifierMaj: (() -> Void)?
     var onBasculerApp: ((String) -> Void)?
 
     var onRequete: ((String) -> Void)?
@@ -336,10 +340,19 @@ struct RechercheView: View {
                         Text(lib).tag(i)
                     }
                 }
-                Toggle(l10n("reglages.raccourci.fnmaj"), isOn: Binding(
-                    get: { model.fnMajOuvre },
-                    set: { _ in model.onBasculerFnMaj?() }
-                ))
+                Button(l10n("reglages.raccourci.changer")) { model.onChangerRaccourci?() }
+
+                Divider()
+                Picker(l10n("reglages.section.maj"), selection: Binding(
+                    get: { model.modeMaj },
+                    set: { model.onChoisirModeMaj?($0) }
+                )) {
+                    Text(l10n("reglages.maj.automatique")).tag(0)
+                    Text(l10n("reglages.maj.demander")).tag(1)
+                    Text(l10n("reglages.maj.desactive")).tag(2)
+                }
+                Button(l10n("reglages.maj.verifier")) { model.onVerifierMaj?() }
+                Text(String(format: l10n("reglages.maj.version"), versionInstallee))
 
                 Divider()
                 Button(l10n("action.tout_sauf_epingles")) { model.onSupprimerSaufEpingles?() }
@@ -351,12 +364,13 @@ struct RechercheView: View {
 
             if let version = model.majDisponible {
                 Button { model.onOuvrirMaj?() } label: {
-                    Label(String(format: l10n("maj.disponible"), version), systemImage: "arrow.down.circle")
+                    Label(String(format: l10n(model.majPrete ? "maj.prete" : "maj.disponible"), version),
+                          systemImage: model.majPrete ? "arrow.triangle.2.circlepath.circle" : "arrow.down.circle")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.blue)
                 }
                 .buttonStyle(.plain)
-                .help(l10n("maj.aide"))
+                .help(l10n(model.majPrete ? "maj.aide_prete" : "maj.aide"))
             }
 
             Spacer()
@@ -373,6 +387,10 @@ struct RechercheView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private var versionInstallee: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
 
     private func monter() {

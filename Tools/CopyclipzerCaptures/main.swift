@@ -153,7 +153,22 @@ func hoteRecherche() -> NSView {
     let modele = RechercheModel()
     modele.lignes = elementsDuMenu(entrees: entrees, recherche: "")
     modele.index = 1
+    modele.majDisponible = "1.1.0"
+    modele.majPrete = true
     let hote = NSHostingView(rootView: RechercheView(model: modele))
+    hote.frame = NSRect(origin: .zero, size: hote.fittingSize)
+    return hote
+}
+
+/// La fenêtre de choix du raccourci, au premier lancement : fn+Maj présélectionné, et une
+/// combinaison libre déjà enregistrée pour voir la ligne du bas remplie, avec son refus.
+func hoteChoixRaccourci() -> NSView {
+    let modele = ChoixRaccourciModel()
+    modele.libelles = ["fn + ⇧", "⌥⌘V", "⌃⌘Espace", "⌥⌘C", "⌃⌥⌘V"]
+    modele.selection = 0
+    modele.personnalise = "⌃⇧K"
+    modele.erreur = l10n("choix_raccourci.refus.un_seul")
+    let hote = NSHostingView(rootView: ChoixRaccourciView(model: modele))
     hote.frame = NSRect(origin: .zero, size: hote.fittingSize)
     return hote
 }
@@ -310,6 +325,8 @@ let apparences: [(String, NSAppearance, NSColor)] = [
 for (nom, apparence, fond) in apparences {
     print("\(nom) :")
     rendre(hoteRecherche(), vers: "2026-10-05-recherche-\(nom)",
+           apparence: apparence, fond: fond)
+    rendre(hoteChoixRaccourci(), vers: "2026-11-08-choix-raccourci-\(nom)",
            apparence: apparence, fond: fond)
     rendre(hoteOverlay(), vers: "2026-09-01-overlay-\(nom)", apparence: apparence, fond: fond)
     rendre(hoteApercu(entrees[1]), vers: "2026-09-01-apercu-image-\(nom)",

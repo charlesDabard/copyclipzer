@@ -11,7 +11,9 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    # macos-14 retiré par GitHub début novembre 2026 : le job échouait en 0 s sur « The
+    # configuration 'macos-14-arm64-us-default' is not supported » (PR #6, 2026-11-08).
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
