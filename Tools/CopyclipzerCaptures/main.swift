@@ -24,7 +24,10 @@ import SwiftUI
 // focus d'une frappe à l'autre : cette démo n'écrit aucun fichier, donc l'argument
 // « focus-demo » ne doit pas être pris pour un dossier de sortie.
 let modeFocusDemo = CommandLine.arguments.contains("focus-demo")
-let dossier = CommandLine.arguments.dropFirst().first { $0 != "focus-demo" }
+/// `vitrine` : les images du README, sans pastille de mise à jour ni message de refus.
+/// À lancer en anglais : `CopyclipzerCaptures <dossier> vitrine -AppleLanguages "(en)"`.
+let modeVitrine = CommandLine.arguments.contains("vitrine")
+let dossier = CommandLine.arguments.dropFirst().first { $0 != "focus-demo" && $0 != "vitrine" }
     ?? FileManager.default.currentDirectoryPath + "/screenshots"
 if !modeFocusDemo {
     try? FileManager.default.createDirectory(atPath: dossier, withIntermediateDirectories: true)
@@ -68,11 +71,13 @@ func entree(kind: ClipKind, titre: String, texte: String, taille: Int,
     return item
 }
 
+// Données d'exemple neutres et en anglais : elles finissent dans la vitrine du README,
+// qui ne doit montrer ni un chemin réel ni une donnée personnelle.
 let texteLong = """
-func placementDuPanneau(ancre: CGRect, taille: CGSize, ecran: CGRect) -> CGPoint {
-    var x = ancre.maxX + marge
-    if x + taille.width > ecran.maxX - marge { x = ancre.minX - marge - taille.width }
-    return CGPoint(x: x, y: ancre.maxY - taille.height)
+func panelOrigin(anchor: CGRect, size: CGSize, screen: CGRect) -> CGPoint {
+    var x = anchor.maxX + margin
+    if x + size.width > screen.maxX - margin { x = anchor.minX - margin - size.width }
+    return CGPoint(x: x, y: anchor.maxY - size.height)
 }
 """
 
@@ -83,8 +88,8 @@ let entrees = [
            source: "com.apple.screencaptureui"),
     entree(kind: .text, titre: texteLong, texte: texteLong, taille: 268, epinglee: true,
            source: "com.microsoft.VSCode"),
-    entree(kind: .files, titre: "/Users/vous/Documents/rapport.md",
-           texte: "/Users/vous/Documents/rapport.md",
+    entree(kind: .files, titre: "/Users/you/Documents/report.md",
+           texte: "/Users/you/Documents/report.md",
            taille: 88, source: "com.apple.finder"),
 ]
 
@@ -149,12 +154,14 @@ func rendre(_ vue: NSView, vers nom: String, apparence: NSAppearance, fond: NSCo
 /// toujours en haut, la liste filtrée, la ligne sélectionnée et le pied d'actions, en
 /// clair comme en sombre. Le panneau réel prend le focus ; ici on ne rend que sa vue,
 /// hors écran, sans aucune permission.
-func hoteRecherche() -> NSView {
+func hoteRecherche(avecPastille: Bool = true) -> NSView {
     let modele = RechercheModel()
     modele.lignes = elementsDuMenu(entrees: entrees, recherche: "")
     modele.index = 1
-    modele.majDisponible = "1.1.0"
-    modele.majPrete = true
+    if avecPastille {
+        modele.majDisponible = "1.1.0"
+        modele.majPrete = true
+    }
     let hote = NSHostingView(rootView: RechercheView(model: modele))
     hote.frame = NSRect(origin: .zero, size: hote.fittingSize)
     return hote
@@ -162,12 +169,14 @@ func hoteRecherche() -> NSView {
 
 /// La fenêtre de choix du raccourci, au premier lancement : fn+Maj présélectionné, et une
 /// combinaison libre déjà enregistrée pour voir la ligne du bas remplie, avec son refus.
-func hoteChoixRaccourci() -> NSView {
+func hoteChoixRaccourci(avecRefus: Bool = true) -> NSView {
     let modele = ChoixRaccourciModel()
     modele.libelles = ["fn + ⇧", "⌥⌘V", "⌃⌘Espace", "⌥⌘C", "⌃⌥⌘V"]
     modele.selection = 0
-    modele.personnalise = "⌃⇧K"
-    modele.erreur = l10n("choix_raccourci.refus.un_seul")
+    if avecRefus {
+        modele.personnalise = "⌃⇧K"
+        modele.erreur = l10n("choix_raccourci.refus.un_seul")
+    }
     let hote = NSHostingView(rootView: ChoixRaccourciView(model: modele))
     hote.frame = NSRect(origin: .zero, size: hote.fittingSize)
     return hote
@@ -321,6 +330,18 @@ let apparences: [(String, NSAppearance, NSColor)] = [
     ("clair", NSAppearance(named: .aqua)!, NSColor(white: 0.92, alpha: 1)),
     ("sombre", NSAppearance(named: .darkAqua)!, NSColor(white: 0.14, alpha: 1)),
 ]
+
+if modeVitrine {
+    for (nom, apparence, fond) in apparences {
+        let theme = nom == "clair" ? "light" : "dark"
+        rendre(hoteRecherche(avecPastille: false), vers: "readme-search-\(theme)", apparence: apparence, fond: fond)
+        rendre(hoteOverlay(), vers: "readme-gesture-\(theme)", apparence: apparence, fond: fond)
+        rendre(hoteChoixRaccourci(avecRefus: false), vers: "readme-shortcut-\(theme)",
+               apparence: apparence, fond: fond)
+    }
+    print("\nÉcrit dans \(dossier)")
+    exit(0)
+}
 
 for (nom, apparence, fond) in apparences {
     print("\(nom) :")
