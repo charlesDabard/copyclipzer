@@ -39,3 +39,9 @@ func l10n(_ cle: String, _ commentaire: String = "") -> String {
 }
 
 private final class TrouveurDeBundle {}
+
+/// Aligne la couche pure sur la langue que `l10n` a retenue : la première localisation
+/// du bundle des traductions pour les langues préférées de l'utilisateur.
+func appliquerLaLangueDAffichage() {
+    langueDAffichage = LangueDAffichage(code: bundleDeLangue.preferredLocalizations.first ?? "fr")
+}

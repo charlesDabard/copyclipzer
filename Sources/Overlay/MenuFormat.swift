@@ -107,12 +107,15 @@ func indexPourCodeDeTouche(_ code: Int64, nombreDeLignes: Int) -> Int? {
 }
 
 /// Le nom lisible d'un type d'entrée, pour le titre de secours et le pied d'aperçu.
-func nomDuType(_ kind: ClipKind) -> String {
-    switch kind {
-    case .text: return "Texte"
-    case .rtf: return "Texte enrichi"
-    case .image: return "Image"
-    case .files: return "Fichiers"
+func nomDuType(_ kind: ClipKind, langue: LangueDAffichage = langueDAffichage) -> String {
+    switch (kind, langue) {
+    case (.text, .francais): return "Texte"
+    case (.text, .anglais): return "Text"
+    case (.rtf, .francais): return "Texte enrichi"
+    case (.rtf, .anglais): return "Rich text"
+    case (.image, _): return "Image"
+    case (.files, .francais): return "Fichiers"
+    case (.files, .anglais): return "Files"
     }
 }
 
@@ -120,26 +123,35 @@ func nomDuType(_ kind: ClipKind) -> String {
 /// `ByteCountFormatter`, dont la sortie dépend de la langue du système : un test qui
 /// attend « 340 o » tomberait sur une machine anglophone, et ce serait le test qui
 /// aurait tort, pas le code.
-func tailleLisible(_ octets: Int) -> String {
+func tailleLisible(_ octets: Int, langue: LangueDAffichage = langueDAffichage) -> String {
+    let (o, ko, mo) = langue == .francais ? ("o", "Ko", "Mo") : ("B", "KB", "MB")
     if octets < 1024 {
-        return "\(octets) o"
+        return "\(octets) \(o)"
     }
     if octets < 1024 * 1024 {
-        return String(format: "%.0f Ko", Double(octets) / 1024)
+        return String(format: "%.0f \(ko)", Double(octets) / 1024)
     }
-    return String(format: "%.1f Mo", Double(octets) / (1024 * 1024))
+    return String(format: "%.1f \(mo)", Double(octets) / (1024 * 1024))
 }
 
-/// La date d'une entrée, au format court français, fuseau de la machine.
-private let formatDeLApercu: DateFormatter = {
+/// La date d'une entrée, au format court de la langue, fuseau de la machine.
+private let formatFrancais: DateFormatter = {
     let f = DateFormatter()
     f.locale = Locale(identifier: "fr_FR")
     f.dateFormat = "dd/MM/yyyy HH:mm"
     return f
 }()
 
-func dateLisible(_ horodatage: Double) -> String {
-    formatDeLApercu.string(from: Date(timeIntervalSince1970: horodatage))
+private let formatAnglais: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "MMM d, yyyy, HH:mm"
+    return f
+}()
+
+func dateLisible(_ horodatage: Double, langue: LangueDAffichage = langueDAffichage) -> String {
+    (langue == .francais ? formatFrancais : formatAnglais)
+        .string(from: Date(timeIntervalSince1970: horodatage))
 }
 
 /// Le titre de repli d'une entrée qui n'en a pas.

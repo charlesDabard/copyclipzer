@@ -30,7 +30,6 @@ final class FenetreRaccourci: NSObject, NSWindowDelegate {
 
     override init() {
         super.init()
-        model.libelles = RaccourciDOuverture.proposes.map(\.libelle)
         model.onEnregistrer = { [weak self] in self?.commencerLEnregistrement() }
         model.onValider = { [weak self] in self?.valider() }
         model.onAnnuler = { [weak self] in self?.fermer() }
@@ -38,6 +37,9 @@ final class FenetreRaccourci: NSObject, NSWindowDelegate {
 
     /// `actuel` nil : premier choix, obligatoire, fn+Maj présélectionné.
     func afficher(actuel: RaccourciDOuverture?) {
+        // Les libellés se calculent à l'affichage, pas à la création : la fenêtre naît
+        // avec l'AppDelegate, AVANT que la langue d'affichage ne soit réglée.
+        model.libelles = RaccourciDOuverture.proposes.map(\.libelle)
         model.obligatoire = actuel == nil
         model.erreur = nil
         if let actuel, !RaccourciDOuverture.proposes.contains(actuel) {

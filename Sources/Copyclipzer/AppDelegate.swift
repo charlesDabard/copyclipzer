@@ -97,6 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Le journal d'abord : tout ce qui suit peut échouer, et c'est précisément ce qu'il
         // doit voir. Le mode détaillé est relu dans les préférences, il survit au relancement.
         journal.configurer(dossier: Journal.dossierParDefaut)
+        appliquerLaLangueDAffichage()
+        journal.info("demarrage", "langue de l'interface : \(bundleDeLangue.preferredLocalizations.first ?? "?") "
+            + "(système : \(Locale.preferredLanguages.first ?? "?"))")
         journal.detaille = UserDefaults.standard.bool(forKey: Self.cleJournalDetaille)
         journalDeDemarrage()
 

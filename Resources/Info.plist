@@ -10,6 +10,8 @@
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
+    <key>CFBundleDevelopmentRegion</key><string>fr</string>
+    <key>CFBundleLocalizations</key><array><string>fr</string><string>en</string></array>
     <key>SUFeedURL</key><string>https://github.com/charlesDabard/copyclipzer/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key><string>j/iDrqwEipBI7o43195EKg/s4ar3d5m9gOm4XuFfve4=</string>
     <key>SUEnableAutomaticChecks</key><true/>

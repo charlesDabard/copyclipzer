@@ -23,6 +23,7 @@ import SwiftUI
 // Avec « focus-demo », il ouvre une vraie fenêtre clé et prouve que le champ garde le
 // focus d'une frappe à l'autre : cette démo n'écrit aucun fichier, donc l'argument
 // « focus-demo » ne doit pas être pris pour un dossier de sortie.
+appliquerLaLangueDAffichage()
 let modeFocusDemo = CommandLine.arguments.contains("focus-demo")
 /// `vitrine` : les images du README, sans pastille de mise à jour ni message de refus.
 /// À lancer en anglais : `CopyclipzerCaptures <dossier> vitrine -AppleLanguages "(en)"`.
@@ -171,7 +172,8 @@ func hoteRecherche(avecPastille: Bool = true) -> NSView {
 /// combinaison libre déjà enregistrée pour voir la ligne du bas remplie, avec son refus.
 func hoteChoixRaccourci(avecRefus: Bool = true) -> NSView {
     let modele = ChoixRaccourciModel()
-    modele.libelles = ["fn + ⇧", "⌥⌘V", "⌃⌘Espace", "⌥⌘C", "⌃⌥⌘V"]
+    let espace = langueDAffichage == .francais ? "Espace" : "Space"
+    modele.libelles = ["fn + ⇧", "⌥⌘V", "⌃⌘\(espace)", "⌥⌘C", "⌃⌥⌘V"]
     modele.selection = 0
     if avecRefus {
         modele.personnalise = "⌃⇧K"

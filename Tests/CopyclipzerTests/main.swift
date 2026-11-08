@@ -3675,6 +3675,61 @@ do {
           lire("Package.swift").contains("@executable_path/../Frameworks"))
 }
 
+section("Langue d'affichage · libellés de la couche pure", attendu: 16)
+do {
+    // Signalé le 2026-11-08 sur les captures du README : l'interface anglaise affichait
+    // « Image · 83 Ko » et « ⌃⌘Espace ». Chaque libellé dans les deux langues.
+    check("une langue française se lit français", LangueDAffichage(code: "fr-FR") == .francais)
+    check("l'anglais se lit anglais", LangueDAffichage(code: "en") == .anglais)
+    check("une langue sans traduction retombe sur l'anglais", LangueDAffichage(code: "de") == .anglais)
+    check("le français reste la langue par défaut", langueDAffichage == .francais)
+
+    check("taille en français : Ko", tailleLisible(85424, langue: .francais) == "83 Ko")
+    check("taille en anglais : KB", tailleLisible(85424, langue: .anglais) == "83 KB",
+          "obtenu « \(tailleLisible(85424, langue: .anglais)) »")
+    check("octets et mégaoctets en anglais",
+          tailleLisible(340, langue: .anglais) == "340 B" && tailleLisible(1_500_000, langue: .anglais) == "1.4 MB")
+    check("type en anglais", nomDuType(.files, langue: .anglais) == "Files" && nomDuType(.text, langue: .anglais) == "Text")
+    check("type en français", nomDuType(.files, langue: .francais) == "Fichiers")
+    check("date en anglais, mois en lettres",
+          dateLisible(0, langue: .anglais).hasPrefix("Jan 1, 1970") || dateLisible(0, langue: .anglais).hasPrefix("Dec 31, 1969"),
+          "obtenu « \(dateLisible(0, langue: .anglais)) »")
+    check("Espace en français, Space en anglais",
+          nomDeTouche(keycode: 49, lue: " ", langue: .francais) == "Espace"
+              && nomDeTouche(keycode: 49, lue: " ", langue: .anglais) == "Space")
+
+    // Le branchement : la langue suit celle des traductions, au lancement de l'app, et le
+    // journal reste en français quelle que soit la langue de l'interface.
+    let localisation = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Overlay/Localisation.swift"),
+                                    encoding: .utf8)) ?? ""
+    let colleur = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Paste/Paster.swift"),
+                               encoding: .utf8)) ?? ""
+    check("la langue d'affichage suit le bundle des traductions",
+          localisation.contains("LangueDAffichage(code: bundleDeLangue.preferredLocalizations.first"))
+    check("l'app règle la langue d'affichage au lancement",
+          sourceDuDelegue.contains("journal.configurer(dossier: Journal.dossierParDefaut)\n        appliquerLaLangueDAffichage()"))
+    let fenetreChoix = (try? String(contentsOf: racineDuPaquet.appendingPathComponent("Sources/Copyclipzer/FenetreRaccourci.swift"),
+                                    encoding: .utf8)) ?? ""
+    // La fenêtre naît avec l'AppDelegate, avant le réglage de la langue : calculés à
+    // l'init, ses libellés restaient en français (« Espace ») dans l'interface anglaise.
+    let posAfficher = fenetreChoix.range(of: "func afficher(actuel:")?.lowerBound
+    let posLibelles = fenetreChoix.range(of: "model.libelles = RaccourciDOuverture.proposes")?.lowerBound
+    check("la fenêtre de choix calcule ses libellés à l'affichage, pas à la création",
+          posAfficher != nil && posLibelles != nil && posLibelles! > posAfficher!)
+    // Sans ces deux clés, macOS ne prête à l'app qu'une langue, l'anglais : le bundle des
+    // traductions rendait preferred=["en"] sur un Mac en fr-FR, et l'interface n'a jamais
+    // été en français (mesuré le 2026-11-08 avec deux apps témoins, avec et sans).
+    let plistApp = (try? PropertyListSerialization.propertyList(
+        from: Data(contentsOf: racineDuPaquet.appendingPathComponent("Resources/Info.plist")),
+        format: nil)) as? [String: Any] ?? [:]
+    check("l'app déclare ses langues, sinon macOS la croit anglaise seulement",
+          (plistApp["CFBundleLocalizations"] as? [String]).map(Set.init) == ["fr", "en"]
+              && plistApp["CFBundleDevelopmentRegion"] as? String == "fr",
+          "obtenu \(String(describing: plistApp["CFBundleLocalizations"]))")
+    check("le journal du collage reste en français",
+          colleur.components(separatedBy: "nomDuType(item.kind, langue: .francais)").count == 3)
+}
+
 // MARK: - Audit du 2026-10-17
 
 // Le journal. Ce qui se mesure ici : le format d'une ligne, la rotation, le silence tant
