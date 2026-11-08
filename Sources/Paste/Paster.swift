@@ -185,10 +185,10 @@ final class Paster {
         let representation = representationAEcrire(kind: item.kind, texteBrut: texteBrut,
                                                    aPayload: payload != nil)
         if payload == nil, item.kind == .rtf || item.kind == .image, !texteBrut {
-            journal.alerte("collage", "entrée \(nomDuType(item.kind)) sans charge utile en base, "
+            journal.alerte("collage", "entrée \(nomDuType(item.kind, langue: .francais)) sans charge utile en base, "
                 + "repli sur le texte")
         }
-        journal.info("collage", "écriture \(representation) d'une entrée \(nomDuType(item.kind)) "
+        journal.info("collage", "écriture \(representation) d'une entrée \(nomDuType(item.kind, langue: .francais)) "
             + "(\(item.byteSize) octets) vers \(Paster.appDeDevant())")
         switch representation {
         case .texte:

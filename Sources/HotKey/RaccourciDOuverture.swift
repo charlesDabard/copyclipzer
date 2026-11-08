@@ -75,9 +75,9 @@ func libelleDesModificateurs(option: Bool, commande: Bool, majuscule: Bool, cont
 /// Le nom affiché d'une touche. Les touches qui n'impriment rien ont un nom fixe (leur
 /// keycode ne dépend pas de la disposition) ; les autres prennent le caractère lu, en
 /// majuscule comme sur les menus macOS.
-func nomDeTouche(keycode: Int, lue: String) -> String {
+func nomDeTouche(keycode: Int, lue: String, langue: LangueDAffichage = langueDAffichage) -> String {
     switch keycode {
-    case 49: return "Espace"
+    case 49: return langue == .francais ? "Espace" : "Space"
     case 36: return "↩"
     case 48: return "⇥"
     case 51: return "⌫"
