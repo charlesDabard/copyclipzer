@@ -51,7 +51,10 @@ echo "→ version $VERSION (build $ANCIEN_BUILD → $NOUVEAU_BUILD)"
 
 # Une release signée en ad-hoc changerait d'empreinte à chaque build : l'Accessibilité de
 # chaque utilisateur sauterait à chaque mise à jour. Seul le certificat stable la garde.
-if ! codesign -dv --verbose=2 Copyclipzer.app 2>&1 | grep -q "Authority=Copyclipzer Local"; then
+# La sortie est lue d'abord, puis cherchée : `codesign | grep -q` sous `pipefail` refusait
+# une app bien signée, grep -q quittant tôt et codesign mourant de SIGPIPE (2026-11-08).
+SIGNATURE=$(codesign -dv --verbose=2 Copyclipzer.app 2>&1 || true)
+if ! grep -q "Authority=Copyclipzer Local" <<<"$SIGNATURE"; then
 	echo "! Copyclipzer.app n'est pas signée par « Copyclipzer Local » : release refusée" >&2
 	echo "  recréer le certificat avec docs/CERTIFICAT-LOCAL.md" >&2
 	exit 1
